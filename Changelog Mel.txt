@@ -1,0 +1,25 @@
+Mounts Menu:
+
+    Added groups and families to the mount list.
+    Setting a group or family with a priority above 0 will:
+        Remove any eligible mounts with a priority above 0 from the general summoning pool.
+        If the group or family is selected for summoning, one of its mounts will be summoned based on its priority.
+    The priority of groups and families can be adjusted individually or using the global priority change arrows at the top.
+    Groups and families are integrated into the search menu.
+    Groups and families with no eligible mounts are highlighted in red and hidden by default. They can be viewed by toggling the "Unusable" checkbox.
+
+Groups Menu:
+
+    Added import/export functionality. Note that the export string is incompatible with the family import menu.
+    The search bar now searches both the mounts list and the group list.
+
+Families Menu:
+
+    Introduced the menu, which loads default family settings and allows users to modify and reset them as needed.
+    Added import/export functionality. Note that the export string is incompatible with the groups import menu.
+
+Remaining To-Dos:
+
+    Fix the Groups filter in the Mounts menu to allow users to show or hide groups of interest.
+    Add a Family (groups) filter option in the Mounts menu for the same purpose as above.
+    Ensure Groups and Families are compatible with other filters in the Mounts menu.
