@@ -1,0 +1,211 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\..\FrameXML\UI.xsd">
+
+<!-- Copyright 2011 Mike Battersby -->
+
+<Script file="Families.lua" />
+
+<Button name="LiteMountFamiliesPanelFamilyTemplate" virtual="true" mixin="LiteMountFamiliesPanelFamilyMixin" inherits="LiteMountListButtonStyleTemplate">
+    <Scripts>
+        <OnClick method="OnClick" />
+    </Scripts>
+
+    <Size y="24" />
+
+    <HighlightTexture alphaMode="ADD">
+        <Color r="0.3" g="0.5" b="1" a="0.3" />
+    </HighlightTexture>
+
+    <Layers>
+        <Layer level="OVERLAY">
+            <Texture parentKey="SelectedTexture" hidden="true" setAllPoints="true">
+                <Color r="1" g="0.843" b="0" a="0.2" />
+            </Texture>
+            <Texture parentKey="Icon">
+                <Size x="18" y="18" />
+                <Anchors><Anchor point="LEFT" x="8" /></Anchors>
+            </Texture>
+            <Texture parentKey="SelectedArrow" file="Interface\ChatFrame\ChatFrameExpandArrow" hidden="true">
+                <Size x="18" y="18" />
+                <Anchors><Anchor point="RIGHT" x="-4" /></Anchors>
+            </Texture>
+        </Layer>
+        <Layer level="ARTWORK">
+            <FontString parentKey="Text" inherits="GameFontHighlight" justifyH="LEFT">
+                <Anchors>
+                    <Anchor point="LEFT" x="4" />
+                    <Anchor point="RIGHT" x="-4" />
+                </Anchors>
+            </FontString>
+        </Layer>
+    </Layers>
+</Button>
+
+<Button name="LiteMountFamiliesPanelMountTemplate" inherits="LiteMountListButtonStyleTemplate" virtual="true" mixin="LiteMountFamiliesPanelMountMixin">
+    <Scripts>
+        <OnClick method="OnClick" />
+        <OnEnter method="OnEnter" />
+        <OnLeave method="OnLeave" />
+    </Scripts>
+
+    <Size y="22" />
+
+    <HighlightTexture alphaMode="ADD">
+        <Color r="0.3" g="0.5" b="1" a="0.3" />
+    </HighlightTexture>
+
+    <Layers>
+        <Layer level="ARTWORK">
+            <Texture parentKey="CheckBox" file="Interface\Buttons\UI-CheckBox-Up">
+                <Size x="22" y="22" />
+                <Anchors>
+                    <Anchor point="LEFT" x="4" />
+                </Anchors>
+            </Texture>
+        </Layer>
+        <Layer level="OVERLAY">
+            <Texture parentKey="Checked" hidden="true" file="Interface\Buttons\UI-CheckBox-Check">
+                <Size x="22" y="22" />
+                <Anchors>
+                    <Anchor point="CENTER" relativeKey="$parent.CheckBox" />
+                </Anchors>
+            </Texture>
+            <FontString parentKey="Name" inherits="GameFontNormal" justifyH="LEFT" wordwrap="false">
+                <Anchors>
+                    <Anchor point="LEFT" relativePoint="RIGHT" relativeKey="$parent.Checked" x="4" />
+                    <Anchor point="RIGHT" x="-4" />
+                </Anchors>
+            </FontString>
+        </Layer>
+    </Layers>
+</Button>
+
+<Button name="LiteMountFamiliesPanelButtonTemplate" virtual="true">
+    <Size y="22" />
+    <Frames>
+        <Button parentKey="mount1" inherits="LiteMountFamiliesPanelMountTemplate">
+            <Anchors>
+                <Anchor point="LEFT" x="4" />
+                <Anchor point="RIGHT" relativePoint="CENTER" x="-4" />
+            </Anchors>
+        </Button>
+        <Button parentKey="mount2" inherits="LiteMountFamiliesPanelMountTemplate">
+            <Anchors>
+                <Anchor point="LEFT" relativePoint="CENTER" x="4" />
+                <Anchor point="RIGHT" x="-4" />
+            </Anchors>
+        </Button>
+    </Frames>
+</Button>
+
+<Frame name="LiteMountFamiliesPanel" hidden="true" inherits="LiteMountOptionsPanelTemplate" mixin="LiteMountFamiliesPanelMixin">
+    <KeyValues>
+        <KeyValue key="name" value="LM_FAMILIES" type="string" />
+    </KeyValues>
+
+    <Scripts>
+        <OnLoad method="OnLoad" />
+        <OnShow method="OnShow" />
+        <OnHide method="OnHide" />
+    </Scripts>
+
+    <Layers>
+        <Layer level="ARTWORK">
+            <FontString inherits="GameFontNormal" justifyV="TOP" justifyH="LEFT" text="LM_FAMILIES_EXP">
+                <Anchors>
+                    <Anchor point="TOP" y="-60" />
+                    <Anchor point="LEFT" x="24" />
+                    <Anchor point="RIGHT" x="-24" />
+                </Anchors>
+            </FontString>
+        </Layer>
+    </Layers>
+
+    <Frames>
+        <Frame parentKey="FamiliesContainer" inherits="LiteMountContainerStyleTemplate" frameStrata="LOW">
+            <Size x="150" />
+            <Anchors>
+                <Anchor point="TOPLEFT" x="16" y="-132" />
+                <Anchor point="BOTTOM" y="40" />
+            </Anchors>
+        </Frame>
+        <Frame parentKey="MountsContainer" inherits="LiteMountContainerStyleTemplate" frameStrata="LOW">
+            <Anchors>
+                <Anchor point="TOP" relativeKey="$parent.FamiliesContainer" />
+                <Anchor point="LEFT" relativeKey="$parent.FamiliesContainer" relativePoint="RIGHT" x="4"/>
+                <Anchor point="BOTTOM" relativeKey="$parent.FamiliesContainer" />
+                <Anchor point="RIGHT" x="-16" />
+            </Anchors>
+        </Frame>
+        <ScrollFrame name="$parentFamilies" parentKey="Families" inherits="MinimalHybridScrollFrameTemplate" mixin="LiteMountFamiliesPanelFamiliesMixin">
+            <Anchors>
+                <Anchor point="TOPLEFT" relativeKey="$parent.FamiliesContainer" x="8" y="-8" />
+                <Anchor point="BOTTOMRIGHT" relativeKey="$parent.FamiliesContainer" x="-8" y="8" />
+            </Anchors>
+            <Scripts>
+                <OnLoad inherit="append" method="OnLoad" />
+                <OnSizeChanged inherit="append" method="OnSizeChanged" />
+            </Scripts>
+        </ScrollFrame>
+        <ScrollFrame name="$parentMounts" parentKey="Mounts" inherits="MinimalHybridScrollFrameTemplate" mixin="LiteMountFamiliesPanelMountScrollMixin">
+            <Anchors>
+                <Anchor point="TOPLEFT" relativeKey="$parent.MountsContainer" x="8" y="-8" />
+                <Anchor point="BOTTOMRIGHT" relativeKey="$parent.MountsContainer" x="-30" y="8" />
+            </Anchors>
+            <Scripts>
+                <OnLoad inherit="append" method="OnLoad" />
+                <OnSizeChanged inherit="append" method="OnSizeChanged" />
+            </Scripts>
+        </ScrollFrame>
+        <CheckButton parentKey="ShowAll">
+            <Size x="22" y="22" />
+            <Anchors>
+                <Anchor point="BOTTOMRIGHT" relativeKey="$parent.MountsContainer" relativePoint="TOPRIGHT" x="-4" y="8" />
+            </Anchors>
+            <Scripts>
+                <OnClick>
+                    local parent = self:GetParent()
+                    parent.showAll = self:GetChecked() or nil
+                    parent:OnRefresh()
+                </OnClick>
+            </Scripts>
+            <NormalTexture file="Interface\Buttons\UI-CheckBox-Up"/>
+            <PushedTexture file="Interface\Buttons\UI-CheckBox-Down"/>
+            <HighlightTexture file="Interface\Buttons\UI-CheckBox-Highlight" alphaMode="ADD"/>
+            <CheckedTexture file="Interface\Buttons\UI-CheckBox-Check"/>
+            <Layers>
+                <Layer level="OVERLAY">
+                    <FontString parentKey="Text" inherits="GameFontHighlight" text="LM_SHOW_ALL_MOUNTS">
+                        <Anchors>
+                            <Anchor point="RIGHT" relativePoint="LEFT" x="-4" />
+                        </Anchors>
+                    </FontString>
+                </Layer>
+            </Layers>
+        </CheckButton>
+        <Button parentKey="ResetButton" inherits="UIPanelButtonTemplate" text="RESET">
+            <Scripts>
+                <OnClick>
+                    local f = LiteMountFamiliesPanel.Families.selectedFamily
+                    if f then StaticPopup_Show("LM_OPTIONS_RESET_FAMILY", f, nil, f) end
+                </OnClick>
+            </Scripts>
+            <Size x="96" y="22" />
+            <Anchors>
+                <Anchor point="TOPLEFT" relativeKey="$parent.FamiliesContainer" relativePoint="BOTTOMLEFT" x="4" y="-8" />
+            </Anchors>
+        </Button>
+    </Frames>
+
+    <Layers>
+        <Layer level="ARTWORK">
+            <FontString inherits="GameFontNormalMed2" text="Family">
+                <Anchors>
+                    <Anchor point="BOTTOM" relativePoint="TOP" relativeKey="$parent.FamiliesContainer" y="4" />
+                </Anchors>
+            </FontString>
+        </Layer>
+    </Layers>
+
+</Frame>
+
+</Ui>

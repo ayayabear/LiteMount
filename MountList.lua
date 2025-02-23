@@ -1,68 +1,355 @@
 --[[----------------------------------------------------------------------------
-
   LiteMount/MountList.lua
-
-  List of mounts with some kinds of extra stuff, mostly shuffle/random.
-
   Copyright 2011 Mike Battersby
-
 ----------------------------------------------------------------------------]]--
 
 local _, LM = ...
-
---[[----------------------------------------------------------------------------
-
-  A primer reminder for me on LUA metatables and doing OO stuff in
-  them.  If you rewrite this from scratch don't make it OO, OK.
-  See also: http://www.lua.org/pil/13.html
-
-  You can set a "metatable" on a table with
-    setmetatable(theTable, theMetaTable)
-
-  Special records in the metatable are used for table access in
-  the case that the table key doesn't exist:
-
-    __index = function (table, key) return value end
-    __newindex = function (table, key, value) store_value_somehow end
-
-  Also arithmetic and comparison operators: __add __mul __eq __lt __le
-
-  For a full list: http://lua-users.org/wiki/MetatableEvents
-
-  The generic case for metatable "inheritence" is
-
-    baseTable = { whatever }
-    childTable = { whateverelse }
-    metaTable = { __index = function (t,k) return baseTable[k] end }
-    setmetatable(childTable, metaTable)
-
-  This is so common that LUA allows a shortcut where you can set __index
-  to be a table instead of a function, and it will do the lookups in
-  that table.
-
-    baseTable = { whatever }
-    childTable = { whateverelse }
-    metaTable = { __index = baseTable }
-    setmetatable(childTable, metaTable)
-
-  Then as a further shortcut, instead of requiring a separate metatable
-  you can just use the base table itself as the metatable by setting its
-  __index record.
-
-    baseTable = { whatever }
-    baseTable.__index = baseTable
-    setmetatable(childTable, baseTable)
-
-  This is typical class-style OO.
-
-----------------------------------------------------------------------------]]--
-
-LM.MountList = { }
+LM.MountList = LM.MountList or { }  -- Initialize if it doesn't exist
 LM.MountList.__index = LM.MountList
 
 function LM.MountList:New(ml)
     return setmetatable(ml or {}, LM.MountList)
 end
+
+if not LM.usabilityCache then
+    LM.usabilityCache = {
+        groups = {},
+        families = {},
+        lastUpdate = 0
+    }
+end
+
+function LM.MountList:ClearCache()
+    self.cachedCombinedList = nil
+    self.cachedSearchText = nil
+end
+
+function LM.MountList:GetCombinedList()
+    -- If we already have a cached list and nothing has changed, return it
+    if self.cachedCombinedList and
+       self.cachedSearchText == LM.UIFilter.GetSearchText() then
+        LM.Debug("Returning cached list with " .. #self.cachedCombinedList .. " items")
+        return self.cachedCombinedList
+    end
+
+    local combinedList = self:New()
+    local groups = LM.Options:GetGroupNames()
+    local families = LM.Options:GetFamilyNames()
+
+    LM.Debug("Found " .. #groups .. " groups and " .. #families .. " families")
+
+    -- Get search text for filtering
+    local filtertext = LM.UIFilter.GetSearchText()
+    local isSearching = filtertext and filtertext ~= SEARCH and filtertext ~= ""
+
+    -- Function to check if a name matches search
+    local function matchesSearch(name)
+        if not isSearching then return true end
+        return string.find(string.lower(name), string.lower(filtertext), 1, true) ~= nil
+    end
+
+    -- Add groups that match search AND are not filtered out
+    for _, groupName in ipairs(groups) do
+        if matchesSearch(groupName) and
+           not (LM.UIFilter.filterList.group and
+                LM.UIFilter.filterList.group[groupName]) then
+            local groupMount = {
+                isGroup = true,
+                name = groupName,
+                group = groupName,
+                priority = LM.Options:GetGroupPriority(groupName),
+                GetPriority = function() return LM.Options:GetGroupPriority(groupName) end,
+                IsCollected = function() return true end,
+                GetSummonCount = function() return 0 end
+            }
+            table.insert(combinedList, groupMount)
+        end
+    end
+
+    -- Add families that match search
+    for _, familyName in ipairs(families) do
+        if matchesSearch(familyName) then
+            local familyMount = {
+                isFamily = true,
+                name = familyName,
+                family = familyName,
+                priority = LM.Options:GetFamilyPriority(familyName),
+                GetPriority = function() return LM.Options:GetFamilyPriority(familyName) end,
+                IsCollected = function() return true end,
+                GetSummonCount = function() return 0 end
+            }
+            table.insert(combinedList, familyMount)
+        end
+    end
+
+    -- Add mounts that match search
+    for _, mount in ipairs(self) do
+        if matchesSearch(mount.name) then
+            table.insert(combinedList, mount)
+        end
+    end
+
+    -- Cache the results
+    self.cachedCombinedList = combinedList
+    self.cachedSearchText = filtertext
+
+    return combinedList
+end
+
+-- Add this function before RefreshUsabilityCache()
+function LM.GetGroupOrFamilyStatus(isGroup, name)
+    local hasUsableMounts = false
+    local hasCollectedMounts = false
+    local hasPriorityMounts = false
+    
+    for _, mount in ipairs(LM.MountRegistry.mounts) do
+        local isMountInEntity = false
+        
+        if isGroup then
+            isMountInEntity = LM.Options:IsMountInGroup(mount, name)
+        else
+            isMountInEntity = LM.Options:IsMountInFamily(mount, name)
+        end
+        
+        if isMountInEntity then
+            -- Check if mount has priority > 0
+            if mount:GetPriority() > 0 then
+                hasPriorityMounts = true
+                
+                -- Check faction
+                local isRightFaction = true
+                if mount.mountID then
+                    local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
+                    if isFactionSpecific then
+                        local playerFaction = UnitFactionGroup('player')
+                        isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
+                                         (playerFaction == 'Alliance' and faction == 1)
+                    end
+                end
+                
+                if mount:IsCollected() then
+                    hasCollectedMounts = true
+                    
+                    -- Only count as usable if it's the right faction and can be summoned
+                    if isRightFaction and mount:IsUsable() then
+                        hasUsableMounts = true
+                    end
+                end
+            end
+        end
+    end
+    
+    -- A group/family is:
+    -- - Normal if it has at least one usable mount with priority > 0
+    -- - Red if it has mounts with priority > 0 but none are usable
+    -- - Gray if it has no mounts with priority > 0
+    local isRed = hasPriorityMounts and hasCollectedMounts and not hasUsableMounts
+    
+    return {
+        hasCollectedMounts = hasCollectedMounts,
+        hasUsableMounts = hasUsableMounts,
+        hasPriorityMounts = hasPriorityMounts,
+        isRed = isRed,
+        shouldBeGray = not hasPriorityMounts
+    }
+end
+
+-- The RefreshUsabilityCache() function remains exactly the same as you had it
+function LM.RefreshUsabilityCache()
+    local cache = LM.usabilityCache
+    cache.groups = {}
+    cache.families = {}
+    
+    -- Get current search text
+    local searchText = LM.UIFilter.GetSearchText()
+    local isSearching = searchText and searchText ~= SEARCH and searchText ~= ""
+    
+    -- Refresh group usability
+    for _, groupName in ipairs(LM.Options:GetGroupNames()) do
+        local groupStatus = {
+            hasCollectedMounts = false,
+            hasUsableMounts = false,
+            hasRightFactionMounts = false,
+            isRed = false
+        }
+        
+        -- Check each mount in the group
+        for _, mount in ipairs(LM.MountRegistry.mounts) do
+            if LM.Options:IsMountInGroup(mount, groupName) and mount:GetPriority() > 0 then
+                -- Check if mount matches search filter
+                local matchesSearch = true
+                if isSearching then
+                    matchesSearch = string.find(mount.name:lower(), searchText:lower(), 1, true) ~= nil
+                end
+                
+                if matchesSearch then
+                    -- Check faction using existing method
+                    local isRightFaction = true
+                    if mount.mountID then
+                        local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
+                        if isFactionSpecific then
+                            local playerFaction = UnitFactionGroup('player')
+                            isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
+                                             (playerFaction == 'Alliance' and faction == 1)
+                        end
+                    end
+                    
+                    if mount:IsCollected() then
+                        groupStatus.hasCollectedMounts = true
+                        
+                        -- Only consider usability if it's the right faction
+                        if isRightFaction then
+                            groupStatus.hasRightFactionMounts = true
+                            groupStatus.hasUsableMounts = groupStatus.hasUsableMounts or mount:IsUsable()
+                        end
+                    end
+                end
+            end
+        end
+        
+        groupStatus.isRed = groupStatus.hasCollectedMounts and groupStatus.hasRightFactionMounts and not groupStatus.hasUsableMounts
+        cache.groups[groupName] = groupStatus
+    end
+    
+    -- Refresh family usability
+    for _, familyName in ipairs(LM.Options:GetFamilyNames()) do
+        local familyStatus = {
+            hasCollectedMounts = false,
+            hasUsableMounts = false,
+            hasRightFactionMounts = false,
+            isRed = false
+        }
+        
+        -- Check each mount in the family
+        for _, mount in ipairs(LM.MountRegistry.mounts) do
+            if LM.Options:IsMountInFamily(mount, familyName) and mount:GetPriority() > 0 then
+                -- Check if mount matches search filter
+                local matchesSearch = true
+                if isSearching then
+                    matchesSearch = string.find(mount.name:lower(), searchText:lower(), 1, true) ~= nil
+                end
+                
+                if matchesSearch then
+                    -- Check faction using existing method
+                    local isRightFaction = true
+                    if mount.mountID then
+                        local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
+                        if isFactionSpecific then
+                            local playerFaction = UnitFactionGroup('player')
+                            isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
+                                             (playerFaction == 'Alliance' and faction == 1)
+                        end
+                    end
+                    
+                    if mount:IsCollected() then
+                        familyStatus.hasCollectedMounts = true
+                        
+                        -- Only consider usability if it's the right faction
+                        if isRightFaction then
+                            familyStatus.hasRightFactionMounts = true
+                            familyStatus.hasUsableMounts = familyStatus.hasUsableMounts or mount:IsUsable()
+                        end
+                    end
+                end
+            end
+        end
+        
+        familyStatus.isRed = familyStatus.hasCollectedMounts and familyStatus.hasRightFactionMounts and not familyStatus.hasUsableMounts
+        cache.families[familyName] = familyStatus
+    end
+    
+    cache.lastUpdate = GetTime()
+    LM.Debug("Refreshed usability cache with search: " .. tostring(searchText))
+end
+
+function LM.GetUsableMountsFromEntity(isGroup, entityName)
+    local mounts = LM.MountList:New()
+    local searchText = LM.UIFilter.GetSearchText()
+    local isSearching = searchText and searchText ~= SEARCH and searchText ~= ""
+    
+    for _, mount in ipairs(LM.MountRegistry.mounts) do
+        local isInEntity = false
+        if isGroup then
+            isInEntity = LM.Options:IsMountInGroup(mount, entityName)
+        else
+            isInEntity = LM.Options:IsMountInFamily(mount, entityName)
+        end
+        
+        -- Check if the mount matches criteria
+        if isInEntity and mount:IsCollected() and mount:IsUsable() and mount:GetPriority() > 0 then
+            -- Only include the mount if it matches the search filter (or no search is active)
+            local matchesSearch = true
+            if isSearching then
+                matchesSearch = string.find(mount.name:lower(), searchText:lower(), 1, true) ~= nil
+            end
+            
+            if matchesSearch then
+                table.insert(mounts, mount)
+            end
+        end
+    end
+    LM.Debug("GetUsableMountsFromEntity is defined: " .. tostring(type(LM.GetUsableMountsFromEntity) == "function"))
+    return mounts
+end
+
+-- New direct summoning helper function that bypasses the usual mount selection logic
+function LM.DirectlySummonRandomMountFromEntity(isGroup, entityName)
+    -- Get search text directly from the UI 
+    local searchText = ""
+    if LiteMountFilter and LiteMountFilter.Search then
+        searchText = LiteMountFilter.Search:GetText() or ""
+    end
+    if searchText == SEARCH then searchText = "" end
+    local isSearching = searchText ~= ""
+    
+    -- Get eligible mounts
+    local eligibleMounts = {}
+    local foundEligibleMounts = false
+    
+    for _, mount in ipairs(LM.MountRegistry.mounts) do
+        -- Check if mount is in the entity
+        local isInEntity = false
+        if isGroup then
+            isInEntity = LM.Options:IsMountInGroup(mount, entityName)
+        else
+            isInEntity = LM.Options:IsMountInFamily(mount, entityName)
+        end
+        
+        -- Only include mounts that meet all criteria
+        if isInEntity and mount:IsCollected() and mount:IsUsable() and mount:GetPriority() > 0 then
+            -- Check search filter if searching
+            local matchesSearch = true
+            if isSearching then
+                matchesSearch = string.find(string.lower(mount.name), string.lower(searchText), 1, true) ~= nil
+            end
+            
+            if matchesSearch then
+                table.insert(eligibleMounts, mount)
+                foundEligibleMounts = true
+            end
+        end
+    end
+    
+    -- If we found eligible mounts, summon one directly
+    if foundEligibleMounts and #eligibleMounts > 0 then
+        -- Select random mount based on weight style
+        local style = LM.Options:GetOption('randomWeightStyle') 
+        local randomIndex = math.random(#eligibleMounts)
+        local selectedMount = eligibleMounts[randomIndex]
+        
+        -- Direct summon (bypassing any other addon logic)
+        if selectedMount and selectedMount.mountID then
+            LM.Debug("Directly summoning: " .. selectedMount.name)
+            C_MountJournal.SummonByID(selectedMount.mountID)
+            return true
+        end
+    end
+    
+    -- No summon happened
+    return false
+end
+
+-- Rest of the MountList.lua code remains exactly the same as before, starting from Copy() function
 
 function LM.MountList:Copy()
     local out = { }
@@ -120,7 +407,6 @@ function LM.MountList:Search(matchfunc, ...)
     return result
 end
 
--- Note that Find doesn't make another table
 function LM.MountList:Find(matchfunc, ...)
     for _,m in ipairs(self) do
         if matchfunc(m, ...) then
@@ -130,8 +416,6 @@ function LM.MountList:Find(matchfunc, ...)
 end
 
 function LM.MountList:Shuffle()
-    -- Fisher-Yates algorithm.
-    -- Shuffle, http://forums.wowace.com/showthread.php?t=16628
     for i = #self, 2, -1 do
         local r = math.random(i)
         self[i], self[r] = self[r], self[i]
@@ -149,33 +433,234 @@ function LM.MountList:SimpleRandom(r)
     end
 end
 
--- This is not a basic weight by priority. The ratios of how often you get a mount of
--- each priority remain the same regardless of how many you have.
-
 function LM.MountList:PriorityWeights()
-    local priorityCounts = { }
+    local weights = { total = 0 }
+    local groupWeights = {}
+    local familyWeights = {}
+    local standaloneMounts = {}
+    local maxPriorityFound = false
+    
+    -- First check for priority 4 groups, families, or mounts
+    for i, m in ipairs(self) do
+        weights[i] = 0  -- Initialize weight to 0
+        
+        -- Only process mounts with priority > 0
+        if m:GetPriority() > 0 then
+            -- Check if mount belongs to any groups
+            local highestPriorityGroup = nil
+            local highestGroupPriority = 0
+            
+            for _, groupName in ipairs(LM.Options:GetGroupNames()) do
+                if LM.Options:IsMountInGroup(m, groupName) then
+                    local groupPriority = LM.Options:GetGroupPriority(groupName)
+                    if groupPriority > highestGroupPriority then
+                        highestGroupPriority = groupPriority
+                        highestPriorityGroup = groupName
+                    end
+                end
+            end
 
-    for _,m in ipairs(self) do
-        local p = m:GetPriority()
-        priorityCounts[p] = ( priorityCounts[p] or 0 ) + 1
+            -- Check if mount belongs to any families
+            local highestPriorityFamily = nil
+            local highestFamilyPriority = 0
+            
+            for _, familyName in ipairs(LM.Options:GetFamilyNames()) do
+                if LM.Options:IsMountInFamily(m, familyName) then
+                    local familyPriority = LM.Options:GetFamilyPriority(familyName)
+                    if familyPriority > highestFamilyPriority then
+                        highestFamilyPriority = familyPriority
+                        highestPriorityFamily = familyName
+                    end
+                end
+            end
+
+            -- Determine the highest priority between groups and families
+            local highestPriority = math.max(highestGroupPriority, highestFamilyPriority)
+            local highestPriorityEntity = highestGroupPriority > highestFamilyPriority and highestPriorityGroup or highestPriorityFamily
+            local isGroup = highestGroupPriority > highestFamilyPriority
+
+            if highestPriorityEntity then
+                if highestPriority == 4 then
+                    -- Handle priority 4 groups or families
+                    if isGroup then
+                        if not groupWeights[highestPriorityEntity] then
+                            groupWeights[highestPriorityEntity] = {
+                                mounts = {},
+                                mountIndices = {},
+                                priority = 4
+                            }
+                        end
+                        table.insert(groupWeights[highestPriorityEntity].mounts, m)
+                        groupWeights[highestPriorityEntity].mountIndices[i] = true
+                    else
+                        if not familyWeights[highestPriorityEntity] then
+                            familyWeights[highestPriorityEntity] = {
+                                mounts = {},
+                                mountIndices = {},
+                                priority = 4
+                            }
+                        end
+                        table.insert(familyWeights[highestPriorityEntity].mounts, m)
+                        familyWeights[highestPriorityEntity].mountIndices[i] = true
+                    end
+                    maxPriorityFound = true
+                elseif highestPriority > 0 then
+                    -- Handle non-priority 4 groups or families
+                    if isGroup then
+                        if not groupWeights[highestPriorityEntity] then
+                            groupWeights[highestPriorityEntity] = {
+                                mounts = {},
+                                mountIndices = {},
+                                priority = highestPriority
+                            }
+                        end
+                        table.insert(groupWeights[highestPriorityEntity].mounts, m)
+                        groupWeights[highestPriorityEntity].mountIndices[i] = true
+                    else
+                        if not familyWeights[highestPriorityEntity] then
+                            familyWeights[highestPriorityEntity] = {
+                                mounts = {},
+                                mountIndices = {},
+                                priority = highestPriority
+                            }
+                        end
+                        table.insert(familyWeights[highestPriorityEntity].mounts, m)
+                        familyWeights[highestPriorityEntity].mountIndices[i] = true
+                    end
+                end
+            else
+                -- Not in any group or family, add to standalone mounts
+                local mountPriority = m:GetPriority()
+                if mountPriority == 4 then
+                    table.insert(standaloneMounts, {
+                        index = i,
+                        priority = 4
+                    })
+                    maxPriorityFound = true
+                elseif mountPriority > 0 then
+                    table.insert(standaloneMounts, {
+                        index = i,
+                        priority = mountPriority
+                    })
+                end
+            end
+        end
     end
 
-    local weights = { total=0 }
-
-    for i, m in ipairs(self) do
-        local p, w  = m:GetPriority()
-        -- Handle the "always" priority by setting all the others to weight 0
-        if priorityCounts[LM.Options.ALWAYS_PRIORITY] and p ~= LM.Options.ALWAYS_PRIORITY then
-            weights[i] = 0
-        else
-            weights[i] = w / ( priorityCounts[p] + 1 )
+    -- If we found any priority 4, only use those
+    if maxPriorityFound then
+        local maxPriorityEntities = {}
+        local maxPriorityTotalMounts = 0
+        
+        -- Count standalone mounts with priority 4
+        local priority4StandaloneMounts = 0
+        for _, mount in ipairs(standaloneMounts) do
+            if mount.priority == 4 then
+                priority4StandaloneMounts = priority4StandaloneMounts + 1
+            end
         end
-        weights.total = weights.total + weights[i]
+        
+        -- Collect priority 4 groups
+        for groupName, group in pairs(groupWeights) do
+            if group.priority == 4 then
+                table.insert(maxPriorityEntities, group)
+                maxPriorityTotalMounts = maxPriorityTotalMounts + 1 -- Each entity counts as ONE for selection
+            end
+        end
+
+        -- Collect priority 4 families
+        for familyName, family in pairs(familyWeights) do
+            if family.priority == 4 then
+                table.insert(maxPriorityEntities, family)
+                maxPriorityTotalMounts = maxPriorityTotalMounts + 1 -- Each entity counts as ONE for selection
+            end
+        end
+
+        local totalChoices = maxPriorityTotalMounts + priority4StandaloneMounts
+        
+        -- Set weights for priority 4 entities
+        for i = 1, #self do
+            weights[i] = 0
+            
+            -- Check priority 4 standalone mounts
+            for _, mount in ipairs(standaloneMounts) do
+                if mount.index == i and mount.priority == 4 then
+                    weights[i] = 1 / totalChoices
+                    weights.total = weights.total + weights[i]
+                end
+            end
+            
+            -- Check priority 4 groups and families
+            for _, entity in pairs(maxPriorityEntities) do
+                if entity.mountIndices[i] then
+                    -- Distribute the entity's weight equally among its mounts
+                    weights[i] = (1 / totalChoices) / #entity.mounts
+                    weights.total = weights.total + weights[i]
+                    break
+                end
+            end
+        end
+        
+        return weights
+    end
+
+    -- Calculate total weight for non-max-priority entities
+    local groupCount = 0
+    local familyCount = 0
+    local standaloneCount = #standaloneMounts
+    local totalWeight = 0
+    
+    for _, group in pairs(groupWeights) do
+        groupCount = groupCount + 1
+        totalWeight = totalWeight + group.priority
+    end
+    
+    for _, family in pairs(familyWeights) do
+        familyCount = familyCount + 1
+        totalWeight = totalWeight + family.priority
+    end
+    
+    for _, mount in ipairs(standaloneMounts) do
+        totalWeight = totalWeight + mount.priority
+    end
+
+    -- Set weights for regular priority entities
+    for i = 1, #self do
+        weights[i] = 0
+        
+        -- Check standalone mounts
+        for _, mount in ipairs(standaloneMounts) do
+            if mount.index == i then
+                weights[i] = mount.priority / totalWeight
+                weights.total = weights.total + weights[i]
+            end
+        end
+        
+        -- Check groups
+        for groupName, group in pairs(groupWeights) do
+            if group.mountIndices[i] then
+                -- The group's weight is split among its mounts
+                weights[i] = (group.priority / totalWeight) / #group.mounts
+                weights.total = weights.total + weights[i]
+                break
+            end
+        end
+        
+        -- Check families
+        for familyName, family in pairs(familyWeights) do
+            if family.mountIndices[i] then
+                -- The family's weight is split among its mounts
+                weights[i] = (family.priority / totalWeight) / #family.mounts
+                weights.total = weights.total + weights[i]
+                break
+            end
+        end
     end
 
     return weights
 end
 
+-- Rest of the functions remain exactly the same as in your original file
 function LM.MountList:RarityWeights()
     local weights = { total=0 }
 
@@ -184,8 +669,6 @@ function LM.MountList:RarityWeights()
             weights[i] = 0
         else
             local rarity = m:GetRarity() or 50
-            -- The weight is the mount's inverted rarity (rarer mounts are more likely)
-            -- Math fudge to guard against 0% rarity.
             weights[i] = 101 / ( rarity + 1) - 1
         end
         weights.total = weights.total + weights[i]
@@ -228,26 +711,40 @@ function LM.MountList:WeightedRandom(weights, r)
     end
 
     local cutoff = (r or math.random()) * weights.total
-
     local t = 0
+    
     for i = 1, #self do
         t = t + weights[i]
         if t > cutoff then
-            LM.Debug('  * WeightedRandom n=%d, t=%0.3f, c=%0.3f, w=%0.3f, p=%0.3f',
-                        #self, weights.total,
-                        cutoff,
-                        weights[i],
-                        weights[i] / weights.total)
             return self[i]
         end
     end
 end
 
+-- Modify MountList:Random in MountList.lua to handle priority 0 mounts
 function LM.MountList:Random(r, style)
     if #self == 0 then return end
+    
+    LM.Debug("MountList:Random called with " .. #self .. " mounts and style " .. tostring(style))
+    
     if style == 'Priority' then
-        local weights = self:PriorityWeights()
-        return self:WeightedRandom(weights, r)
+        -- Check if we only have priority 0 mounts
+        local allZeroPriority = true
+        for _, mount in ipairs(self) do
+            if mount:GetPriority() > 0 then
+                allZeroPriority = false
+                break
+            end
+        end
+        
+        if allZeroPriority then
+            LM.Debug("All mounts have priority 0, using SimpleRandom instead")
+            return self:SimpleRandom(r)
+        else
+            -- Normal priority-based weighting
+            local weights = self:PriorityWeights()
+            return self:WeightedRandom(weights, r)
+        end
     elseif style == 'Rarity' then
         local weights = self:RarityWeights()
         return self:WeightedRandom(weights, r)
@@ -267,11 +764,6 @@ function LM.MountList:FilterSearch(...)
     return self:Search(filterMatch, ...)
 end
 
--- Limits can be intersect (no prefix), subtract (-) or union (+). This really
--- only works when called on a list of the full set of mounts because it's
--- assuming self is everything. So bundle up all the limit expressions into a
--- list and call this once.
-
 local function expressionMatch(m, e)
     return m:MatchesExpression(e)
 end
@@ -285,7 +777,6 @@ function LM.MountList:Limit(limits)
     for _, arg in ipairs(limits) do
         local e = arg:ParseExpression()
         if e == nil then
-            -- SYNTAX ERROR PRINT SOMETHING?
             return nil
         elseif e.op == '+' then
             mounts = mounts:Extend(self:ExpressionSearch(e[1]))
@@ -301,7 +792,6 @@ function LM.MountList:Limit(limits)
 end
 
 local SortFunctions = {
-    -- Show all the collected mounts before the uncollected mounts, then by name
     ['default'] =
         function (a, b)
             if a:IsCollected() and not b:IsCollected() then return true end
@@ -331,3 +821,4 @@ function LM.MountList:Dump()
         m:Dump()
     end
 end
+

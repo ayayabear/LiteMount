@@ -1,0 +1,139 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\..\FrameXML\UI.xsd">
+
+<!-- Copyright 2011 Mike Battersby -->
+
+<Script file="Advanced.lua" />
+
+<Frame name="LiteMountAdvancedPanel" hidden="true" inherits="LiteMountOptionsPanelTemplate" mixin="LiteMountAdvancedPanelMixin">
+
+    <Layers>
+        <Layer level="ARTWORK">
+            <FontString parentKey="ExplainText" inherits="GameFontNormal" justifyV="TOP" justifyH="LEFT" text="LM_ADVANCED_EXP">
+                <Anchors>
+                    <Anchor point="TOP" y="-60" />
+                    <Anchor point="LEFT" x="24" />
+                    <Anchor point="RIGHT" x="-24" />
+                </Anchors>
+            </FontString>
+        </Layer>
+    </Layers>
+
+    <Frames>
+        <Frame parentKey="EditBoxContainer" inherits="LiteMountContainerStyleTemplate">
+            <Anchors>
+                <Anchor point="TOPLEFT" x="16" y="-160" />
+                <Anchor point="BOTTOMRIGHT" x="-16" y="48" />
+            </Anchors>
+        </Frame>
+
+        <ScrollFrame name="$parentEditScroll" parentKey="EditScroll" inherits="UIPanelScrollFrameTemplate" mixin="LiteMountAdvancedEditScrollMixin">
+
+            <Anchors>
+                <Anchor point="TOPLEFT" x="8" y="-8" relativeKey="$parent.EditBoxContainer" />
+                <Anchor point="BOTTOMRIGHT" x="-28" y="8" relativeKey="$parent.EditBoxContainer" />
+            </Anchors>
+
+            <Scripts>
+                <OnLoad method="OnLoad" />
+                <OnShow method="OnShow" />
+            </Scripts>
+
+            <ScrollChild>
+                <EditBox parentKey="EditBox" multiLine="true" autoFocus="false" mixin="LiteMountAdvancedEditBoxMixin">
+                    <Size x="1" y="1" />
+                    <Anchors>
+                        <Anchor point="TOPLEFT" />
+                    </Anchors>
+                    <Scripts>
+                        <OnLoad method="OnLoad" />
+                        <OnTextChanged function="LiteMountOptionsControl_OnTextChanged" />
+                        <OnEscapePressed function="EditBox_ClearFocus" />
+                        <OnUpdate function="InputScrollFrame_OnUpdate" />
+                        <OnCursorChanged function="ScrollingEdit_OnCursorChanged" />
+                    </Scripts>
+                    <FontString inherits="LiteMountMonoFont" />
+                </EditBox>
+            </ScrollChild>
+
+            <Layers>
+                <Layer level="ARTWORK">
+                    <FontString parentKey="ErrorMessage" inherits="GameFontRed" justifyV="TOP" justifyH="MIDDLE" hidden="true">
+                        <Anchors>
+                            <Anchor point="TOP" relativePoint="BOTTOM"  y="-12" />
+                            <Anchor point="LEFT" />
+                            <Anchor point="RIGHT" />
+                        </Anchors>
+                    </FontString>
+                </Layer>
+            </Layers>
+        </ScrollFrame>
+
+        <Button parentKey="UnlockButton" inherits="UIPanelButtonTemplate" mixin="LiteMountAdvancedUnlockButtonMixin" text="UNLOCK">
+            <Size x="96" y="22" />
+            <Anchors>
+                <Anchor point="CENTER" relativeKey="$parent.RevertButton" />
+            </Anchors>
+            <Scripts>
+                <OnShow method="OnShow" />
+                <OnClick method="OnClick" />
+            </Scripts>
+        </Button>
+
+<!--
+        <Button parentKey="PriorityImport" inherits="UIPanelButtonTemplate" text="Import Priorities">
+            <Scripts>
+                <OnClick>
+                    LiteMountOptionsPanel_PopOver(self:GetParent(), LiteMountPriorityImport)
+                </OnClick>
+            </Scripts>
+            <Size x="192" y="22" />
+            <Anchors>
+                <Anchor point="TOPRIGHT" relativeKey="$parent.EditBoxContainer" relativePoint="BOTTOMRIGHT" x="-8" y="-4" />
+            </Anchors>
+        </Button>
+-->
+
+        <DropdownButton parentkey="BindingDropDown" inherits="WoWStyle1DropdownTemplate">
+            <Size x="192" y="26" />
+            <Anchors>
+                <Anchor point="BOTTOMLEFT" relativePoint="TOPLEFT" relativeKey="$parent.EditBoxContainer" x="8" />
+            </Anchors>
+        </DropdownButton>
+
+        <EditBox parentKey="DocURL" autoFocus="false" ignoreArrows="true">
+            <Size y="16" />
+            <Fontstring inherits="GameFontHighlight" />
+            <Anchors>
+                <Anchor point="TOPLEFT" relativeKey="$parent.ExplainText" relativePoint="BOTTOMLEFT" y="-12" x="16" />
+                <Anchor point="RIGHT" x="-16" />
+            </Anchors>
+            <Scripts>
+                <OnLoad>
+                    self.url = 'https://github.com/xod-wow/LiteMount/wiki/Advanced-Options'
+                </OnLoad>
+                <OnShow>
+                    self:SetText(self.url)
+                </OnShow>
+                <OnTextChanged>
+                    self:SetText(self.url)
+                    self:HighlightText()
+                </OnTextChanged>
+                <OnEditFocusLost>
+                    self:HighlightText()
+                </OnEditFocusLost>
+                <OnEditFocusGained>
+                    self:HighlightText()
+                </OnEditFocusGained>
+                <OnEscapePressed function="EditBox_ClearFocus" />
+            </Scripts>
+        </EditBox>
+
+    </Frames>
+
+    <Scripts>
+        <OnLoad method="OnLoad" />
+        <OnShow inherit="prepend" method="OnShow" />
+    </Scripts>
+</Frame>
+
+</Ui>

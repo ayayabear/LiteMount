@@ -1,0 +1,149 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\..\FrameXML\UI.xsd">
+
+<!-- Copyright 2011 Mike Battersby -->
+
+<Script file="PanelTemplate.lua" />
+
+<Frame name="LiteMountContainerStyleTemplate" virtual="true" inherits="BackdropTemplate">
+    <KeyValues>
+        <KeyValue key="backdropInfo" value="LM_CONTAINER_BACKDROP_INFO" type="global"/>
+        <KeyValue key="backdropBorderColor" value="DARKGRAY_COLOR" type="global"/>
+        <KeyValue key="backdropColor" value="VERY_DARK_GRAY_COLOR" type="global"/>
+    </KeyValues>
+</Frame>
+
+<Button name="LiteMountListButtonStyleTemplate" virtual="true" inherits="BackdropTemplate">
+    <KeyValues>
+        <KeyValue key="backdropInfo" value="LM_LISTBUTTON_BACKDROP_INFO" type="global" />
+        <KeyValue key="backdropBorderColor" value="BLACK_FONT_COLOR" type="global"/>
+    </KeyValues>
+</Button>
+
+<Button name="LiteMountButtonStyleTemplate" virtual="true" inherits="BackdropTemplate">
+    <KeyValues>
+        <KeyValue key="backdropInfo" value="LM_BUTTON_BACKDROP_INFO" type="global"/>
+        <KeyValue key="backdropColor" value="VERY_DARK_GRAY_COLOR" type="global"/>
+        <KeyValue key="backdropBorderColor" value="DARKGRAY_COLOR" type="global"/>
+    </KeyValues>
+</Button>
+
+<Button name="LiteMountUIButtonTemplate" virtual="true">
+    <Size x="192" y="36" />
+    <NormalTexture parentKey="NormalTexture" atlas="charactercreate-customize-dropdownbox" />
+    <HighlightTexture parentKey="HighlightTexture" atlas="charactercreate-customize-dropdownbox-open" alphaMode="ADD" alpha="0.2" />
+    <ButtonText inherits="GameFontNormal" parentKey="Text" />
+</Button>
+
+<Button name="LiteMountUISelectButtonTemplate" inherits="LiteMountUIButtonTemplate" virtual="true">
+    <Scripts>
+        <OnEnter>
+            self.HighlightTexture:SetAlpha(0)
+            self.NormalTexture:SetAtlas("charactercreate-customize-dropdownbox-hover");
+        </OnEnter>
+        <OnLeave>
+            self.HighlightTexture:SetAlpha(0.2)
+            self.NormalTexture:SetAtlas("charactercreate-customize-dropdownbox");
+        </OnLeave>
+    </Scripts>
+</Button>
+
+<CheckButton name="LiteMountOptionsCheckButtonTemplate" virtual="true">
+    <Size x="32" y="32" />
+    <NormalTexture file="Interface\Buttons\UI-CheckBox-Up"/>
+    <PushedTexture file="Interface\Buttons\UI-CheckBox-Down"/>
+    <HighlightTexture file="Interface\Buttons\UI-CheckBox-Highlight" alphaMode="ADD"/>
+    <CheckedTexture file="Interface\Buttons\UI-CheckBox-Check"/>
+    <DisabledCheckedTexture file="Interface\Buttons\UI-CheckBox-Check-Disabled"/>
+    <Layers>
+        <Layer level="ARTWORK">
+            <FontString parentKey="Text" inherits="GameFontNormal">
+                <Anchors>
+                    <Anchor point="LEFT" relativePoint="RIGHT" x="4" y="1" />
+                </Anchors>
+            </FontString>
+        </Layer>
+    </Layers>
+</CheckButton>
+
+<Frame name="LiteMountOptionsPanelTemplate" hidden="true" virtual="true">
+    <Scripts>
+        <OnLoad function="LiteMountOptionsPanel_OnLoad" />
+        <OnShow function="LiteMountOptionsPanel_OnShow" />
+        <OnHide function="LiteMountOptionsPanel_OnHide" />
+    </Scripts>
+    <Layers>
+        <Layer level="ARTWORK">
+            <FontString parentKey="Title" inherits="GameFontHighlightHuge" justifyH="LEFT">
+                <Anchors>
+                    <Anchor point="TOPLEFT" x="7" y="-22" />
+                </Anchors>
+            </FontString>
+            <Texture atlas="Options_HorizontalDivider" useAtlasSize="true">
+                <Anchors>
+                    <Anchor point="TOP" y="-50"/>
+                </Anchors>
+            </Texture>
+        </Layer>
+    </Layers>
+    <Frames>
+        <Button parentKey="DefaultsButton" inherits="UIPanelButtonTemplate" text="SETTINGS_DEFAULTS">
+            <Size x="96" y="22"/>
+            <Anchors>
+                <Anchor point="TOPRIGHT" x="-36" y="-16"/>
+            </Anchors>
+            <Scripts>
+                <OnClick>
+                    LiteMountOptionsPanel_OnDefault(self:GetParent(), true)
+                </OnClick>
+            </Scripts>
+        </Button>
+        <Button parentKey="RevertButton" inherits="UIPanelButtonTemplate" text="REVERT">
+            <Size x="96" y="22" />
+            <Anchors>
+                <Anchor point="RIGHT" relativePoint="LEFT" relativeKey="$parent.DefaultsButton" x="-8" />
+            </Anchors>
+            <Scripts>
+                <OnClick>
+                    LiteMountOptionsPanel_Revert(self:GetParent())
+                </OnClick>
+            </Scripts>
+        </Button>
+        <Frame parentKey="Disable" setAllPoints="true" hidden="true" enableMouse="true">
+            <Scripts>
+                <OnLoad>
+                    self:SetFrameLevel(self:GetParent():GetFrameLevel() + 3)
+                </OnLoad>
+            </Scripts>
+            <Layers>
+                <Layer level="OVERLAY">
+                    <Texture>
+                        <Anchors>
+                            <Anchor point="TOPLEFT" x="3" y="-3" />
+                            <Anchor point="BOTTOMRIGHT" x="-3" y="3" />
+                        </Anchors>
+                        <Color r="0.3" g="0.3" b="0.3" a="0.6" />
+                    </Texture>
+                </Layer>
+            </Layers>
+        </Frame>
+    </Frames>
+</Frame>
+
+<Frame name="LiteMountPopOverPanelTemplate" virtual="true" inherits="LiteMountContainerStyleTemplate">
+    <Scripts>
+        <OnLoad inherit="prepend" function="LiteMountPopOverPanel_OnLoad" />
+        <OnShow inherit="prepend" function="LiteMountPopOverPanel_OnShow" />
+        <OnHide inherit="prepend" function="LiteMountPopOverPanel_OnHide" />
+    </Scripts>
+    <Layers>
+        <Layer level="ARTWORK">
+            <FontString inherits="GameFontHighlightLarge" parentKey="Title">
+                <Anchors>
+                    <Anchor point="TOP" y="-16" />
+                </Anchors>
+            </FontString>
+        </Layer>
+    </Layers>
+</Frame>
+
+</Ui>
