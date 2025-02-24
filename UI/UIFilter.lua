@@ -101,11 +101,14 @@ function LM.UIFilter.GetSortKey()
 end
 
 function LM.UIFilter.SetSortKey(k)
+    LM.Debug("SetSortKey called with: " .. tostring(k))
     if LM.UIFilter.sortKey == k then
+        LM.Debug("Sort key unchanged")
         return
     else
-        LM.UIFilter.sortKey = ( k or 'default' )
+        LM.UIFilter.sortKey = (k or 'default')
         LM.UIFilter.ClearCache()
+        LM.Debug("Sort key set to: " .. LM.UIFilter.sortKey)
         callbacks:Fire('OnFilterChanged')
     end
 end
@@ -123,29 +126,24 @@ end
 function LM.UIFilter.UpdateCache()
     LM.Debug("Starting UpdateCache")
     table.wipe(LM.UIFilter.filteredMountList)
-
-    -- Debug current filter state
-    LM.Debug("Active filters:")
-    local groupFilters = {}
-    for g in pairs(LM.UIFilter.filterList.group) do
-        table.insert(groupFilters, g)
-    end
-    LM.Debug("- Groups: " .. table.concat(groupFilters, ", "))
-
-    local familyFilters = {}
-    for f in pairs(LM.UIFilter.filterList.family) do
-        table.insert(familyFilters, f)
-    end
-    LM.Debug("- Families: " .. table.concat(familyFilters, ", "))
-
-    for _, item in ipairs(LM.MountRegistry.mounts:GetCombinedList()) do
+    
+    -- Get the combined list
+    local mounts = LM.MountRegistry.mounts:GetCombinedList()
+    
+    -- Filter items
+    local filteredList = LM.MountList:New()
+    for _, item in ipairs(mounts) do
         if not LM.UIFilter.IsFilteredMount(item) then
-            table.insert(LM.UIFilter.filteredMountList, item)
-            if item.isGroup or item.isFamily then
-                --LM.Debug("Added " .. (item.isGroup and "group: " or "family: ") .. item.name)
-            end
+            table.insert(filteredList, item)
         end
     end
+    
+    -- Sort the filtered list using MountList's Sort method
+    LM.Debug("Sorting filtered list by: " .. tostring(LM.UIFilter.GetSortKey()))
+    filteredList:Sort(LM.UIFilter.GetSortKey())
+    
+    -- Store the result
+    LM.UIFilter.filteredMountList = filteredList
     
     LM.Debug("FilteredMountList now has " .. #LM.UIFilter.filteredMountList .. " items")
 end

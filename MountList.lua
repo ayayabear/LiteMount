@@ -9,50 +9,61 @@ LM.MountList.__index = LM.MountList
 
 local SortFunctions = {
     ['default'] = function(a, b)
-        -- Groups first, then families, then collected mounts, then uncollected
-        if a.isGroup ~= b.isGroup then
-            return a.isGroup
-        elseif a.isFamily ~= b.isFamily then
-            return a.isFamily
-        elseif not a.isGroup and not a.isFamily then
-            -- Regular mounts
-            if a:IsCollected() ~= b:IsCollected() then
-                return a:IsCollected()
-            end
+        --LM.Debug("Default sorting: " .. a.name .. " vs " .. b.name)
+        if a.isGroup ~= b.isGroup then 
+            return a.isGroup 
+        end
+        if a.isFamily ~= b.isFamily then 
+            return a.isFamily 
         end
         return a.name < b.name
     end,
     
     ['name'] = function(a, b)
+        LM.Debug("Name sorting: " .. a.name .. " vs " .. b.name)
         return a.name < b.name
     end,
     
     ['rarity'] = function(a, b)
-        -- Groups and families at bottom
-        if a.isGroup or a.isFamily then
+        LM.Debug("Rarity sorting: " .. a.name .. " vs " .. b.name)
+        -- Mounts first, then groups/families
+        if a.isGroup or a.isFamily then 
             if not (b.isGroup or b.isFamily) then
                 return false
             end
         elseif b.isGroup or b.isFamily then
             return true
         end
-        
-        if not a.isGroup and not a.isFamily then
+        -- Regular mount rarity comparison if both are mounts
+        if not (a.isGroup or a.isFamily) and not (b.isGroup or b.isFamily) then
             return (a:GetRarity() or 101) < (b:GetRarity() or 101)
         end
         return a.name < b.name
     end,
     
     ['summons'] = function(a, b)
-        local aCount = a:GetSummonCount()
-        local bCount = b:GetSummonCount()
-        
+        local aCount = a:GetSummonCount() or 0
+        local bCount = b:GetSummonCount() or 0
+        LM.Debug("Summons sorting: " .. a.name .. "(" .. aCount .. ") vs " .. b.name .. "(" .. bCount .. ")")
         if aCount == bCount then
             return a.name < b.name
         end
         return aCount > bCount
     end,
 }
+
+function LM.MountList:Sort(key)
+    LM.Debug("Sort called with key: " .. tostring(key))
+    if not key then
+        LM.Debug("No sort key provided, using default")
+        key = 'default'
+    end
+    if not SortFunctions[key] then
+        LM.Debug("Invalid sort key: " .. key .. ", using default")
+        key = 'default'
+    end
+    table.sort(self, SortFunctions[key])
+end
 
 function LM.MountList:New(ml)
     return setmetatable(ml or {}, LM.MountList)
@@ -73,9 +84,9 @@ end
 
 function LM.MountList:GetCombinedList()
     -- If we already have a cached list and nothing has changed, return it
-    if self.cachedCombinedList and 
+    if self.cachedCombinedList and
        self.cachedSearchText == LM.UIFilter.GetSearchText() then
-		LM.Debug("Returning cached list with " .. #self.cachedCombinedList .. " items")
+        LM.Debug("Returning cached list with " .. #self.cachedCombinedList .. " items")
         return self.cachedCombinedList
     end
 
@@ -83,7 +94,8 @@ function LM.MountList:GetCombinedList()
     local groups = LM.Options:GetGroupNames()
     local families = LM.Options:GetFamilyNames()
 
-	    LM.Debug("Found " .. #groups .. " groups and " .. #families .. " families")
+    LM.Debug("Found " .. #groups .. " groups and " .. #families .. " families")
+
     -- Get search text for filtering
     local filtertext = LM.UIFilter.GetSearchText()
     local isSearching = filtertext and filtertext ~= SEARCH and filtertext ~= ""
@@ -97,17 +109,18 @@ function LM.MountList:GetCombinedList()
     -- Add groups that match search
     for _, groupName in ipairs(groups) do
         if matchesSearch(groupName) then
-            local groupMount = {
-                isGroup = true,
-                name = groupName,
-                group = groupName,
-                priority = LM.Options:GetGroupPriority(groupName),
-                GetPriority = function() return LM.Options:GetGroupPriority(groupName) end,
-                IsCollected = function() return true end,
-                GetSummonCount = function() 
-				return LM.Options:GetEntitySummonCount(true, groupName)
-				end
-            }
+local groupMount = {
+    isGroup = true,
+    name = groupName,
+    group = groupName,
+    priority = LM.Options:GetGroupPriority(groupName),
+    GetPriority = function() return LM.Options:GetGroupPriority(groupName) end,
+    IsCollected = function() return true end,
+    GetSummonCount = function() 
+        LM.Debug("Getting summon count for group: " .. groupName)
+        return LM.Options:GetEntitySummonCount(true, groupName) 
+    end
+}
             table.insert(combinedList, groupMount)
         end
     end
@@ -115,17 +128,18 @@ function LM.MountList:GetCombinedList()
     -- Add families that match search
     for _, familyName in ipairs(families) do
         if matchesSearch(familyName) then
-            local familyMount = {
-                isFamily = true,
-                name = familyName,
-                family = familyName,
-                priority = LM.Options:GetFamilyPriority(familyName),
-                GetPriority = function() return LM.Options:GetFamilyPriority(familyName) end,
-                IsCollected = function() return true end,
-                GetSummonCount = function() 
-				return LM.Options:GetEntitySummonCount(false, familyName)
-				end
-            }
+local familyMount = {
+    isFamily = true,
+    name = familyName,
+    family = familyName,
+    priority = LM.Options:GetFamilyPriority(familyName),
+    GetPriority = function() return LM.Options:GetFamilyPriority(familyName) end,
+    IsCollected = function() return true end,
+    GetSummonCount = function() 
+        LM.Debug("Getting summon count for family: " .. familyName)
+        return LM.Options:GetEntitySummonCount(false, familyName) 
+    end
+}
             table.insert(combinedList, familyMount)
         end
     end
@@ -137,12 +151,17 @@ function LM.MountList:GetCombinedList()
         end
     end
 
-    -- Cache the results
+    -- Before returning, sort the list
+    LM.Debug("Sorting combined list by: " .. (LM.UIFilter.GetSortKey() or "default"))
+    combinedList:Sort(LM.UIFilter.GetSortKey())
+
+    -- Cache and return the sorted list
     self.cachedCombinedList = combinedList
     self.cachedSearchText = filtertext
 
     return combinedList
 end
+
 
 -- Add this function before RefreshUsabilityCache()
 function LM.GetGroupOrFamilyStatus(isGroup, name)
@@ -343,19 +362,20 @@ end
 -- New direct summoning helper function that bypasses the usual mount selection logic
 
 function LM.DirectlySummonRandomMountFromEntity(isGroup, entityName)
+    LM.Debug("Starting DirectlySummonRandomMountFromEntity for: " .. tostring(entityName))
+    
     local mounts = LM.GetMountsFromEntity(isGroup, entityName)
     if #mounts > 0 then
-        local style = LM.Options:GetOption('randomWeightStyle') 
+        local style = LM.Options:GetOption('randomWeightStyle')
         local selectedMount = mounts:Random(nil, style)
         
         if selectedMount and selectedMount.mountID then
-            -- Increment entity summon count
+            -- Increment entity count first
+            LM.Debug("Incrementing count for " .. (isGroup and "group: " or "family: ") .. entityName)
             LM.Options:IncrementEntitySummonCount(isGroup, entityName)
             
-            LM.Debug("Directly summoning: " .. selectedMount.name .. 
-                     " from " .. (isGroup and "group: " or "family: ") .. entityName)
+            -- Then summon mount
             C_MountJournal.SummonByID(selectedMount.mountID)
-            selectedMount:OnSummon()
             return true
         end
     end
@@ -803,10 +823,6 @@ function LM.MountList:Limit(limits)
         end
     end
     return mounts
-end
-
-function LM.MountList:Sort(key)
-    table.sort(self, SortFunctions[key] or SortFunctions.default)
 end
 
 function LM.MountList:Dump()

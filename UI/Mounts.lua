@@ -425,31 +425,57 @@ end
 function LiteMountMountIconMixin:OnClickHook(mouseButton, isDown)
     local parent = self:GetParent()
     
-    -- First try to handle group/family summon, and if handled, don't continue
-    if parent and (parent.group or parent.family) then
-        if mouseButton == "RightButton" then
-            if self:HandleGroupFamilySummon(parent) then
-                return -- Skip further processing
-            end
-        elseif mouseButton == "LeftButton" then
-            -- Handle left-click navigation
-            if parent.group then
-                LiteMountGroupsPanel.Groups.selectedGroup = parent.group
-                Settings.OpenToCategory(LiteMountGroupsPanel.category.ID)
-                LiteMountGroupsPanel:Update()
-                return -- Skip further processing
-            elseif parent.family then
-                LiteMountFamiliesPanel.Families.selectedFamily = parent.family
-                Settings.OpenToCategory(LiteMountFamiliesPanel.category.ID)
-                LiteMountFamiliesPanel:Update()
-                return -- Skip further processing
+    LM.Debug("Mount icon clicked: " .. button .. " for " .. 
+             (parent.mount and "mount " .. parent.mount.name or
+              parent.group and "group " .. parent.group or
+              parent.family and "family " .. parent.family or
+              "unknown"))
+
+    if button == "RightButton" then
+        -- Handle mount summoning
+        if parent.mount and parent.mount.mountID then
+            -- Direct mount summoning
+            C_MountJournal.SummonByID(parent.mount.mountID)
+            parent.mount:OnSummon()
+        elseif parent.group or parent.family then
+            -- Group/Family summoning
+            local entityName = parent.group or parent.family
+            local isGroup = parent.group ~= nil
+            
+            -- Get filtered list of mounts
+            local mounts = LM.GetMountsFromEntity(isGroup, entityName)
+            
+            if #mounts > 0 then
+                -- Select mount using current weight style
+                local style = LM.Options:GetOption('randomWeightStyle')
+                local selectedMount = mounts:Random(nil, style)
+                
+                if selectedMount and selectedMount.mountID then
+                    -- First increment the entity counter
+                    LM.Options:IncrementEntitySummonCount(isGroup, entityName)
+                    
+                    -- Then summon the mount and trigger its OnSummon
+                    C_MountJournal.SummonByID(selectedMount.mountID)
+                    selectedMount:OnSummon()
+                end
             end
         end
-    end
-    
-    -- Continue with original behavior for non-group/family items
-    if self.clickHookFunction then
-        self.clickHookFunction()
+    elseif button == "LeftButton" then
+        -- Handle left-click navigation and chat linking
+        if IsModifiedClick("CHATLINK") and parent.mount then
+            local mountLink = GetSpellLink(parent.mount.spellID)
+            if mountLink then
+                ChatEdit_InsertLink(mountLink)
+            end
+        elseif parent.group then
+            LiteMountGroupsPanel.Groups.selectedGroup = parent.group
+            Settings.OpenToCategory(LiteMountGroupsPanel.category.ID)
+            LiteMountGroupsPanel:Update()
+        elseif parent.family then
+            LiteMountFamiliesPanel.Families.selectedFamily = parent.family
+            Settings.OpenToCategory(LiteMountFamiliesPanel.category.ID)
+            LiteMountFamiliesPanel:Update()
+        end
     end
 end
 
@@ -890,7 +916,10 @@ end
 
 
 function LiteMountMountButtonMixin:OnShow()
-    self:SetWidth(self:GetParent():GetWidth())
+    local parent = self:GetParent()
+    if parent then
+        self:SetWidth(parent:GetWidth())
+    end
 end
 
 --[[------------------------------------------------------------------------]]--

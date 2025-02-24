@@ -1141,6 +1141,7 @@ function LM.Options:GetSummonCount(item)
 end
 
 function LM.Options:GetEntitySummonCount(isGroup, entityName)
+    LM.Debug("Getting count for " .. (isGroup and "group" or "family") .. ": " .. tostring(entityName))
     if isGroup then
         return (LM.db.global.groupSummonCounts or {})[entityName] or 0
     else
@@ -1149,22 +1150,24 @@ function LM.Options:GetEntitySummonCount(isGroup, entityName)
 end
 
 function LM.Options:IncrementEntitySummonCount(isGroup, entityName)
+    LM.Debug("Incrementing count for " .. (isGroup and "group" or "family") .. ": " .. tostring(entityName))
     if isGroup then
         if not LM.db.global.groupSummonCounts then
             LM.db.global.groupSummonCounts = {}
         end
         LM.db.global.groupSummonCounts[entityName] = 
             (LM.db.global.groupSummonCounts[entityName] or 0) + 1
-        return LM.db.global.groupSummonCounts[entityName]
+        LM.Debug("New group count: " .. tostring(LM.db.global.groupSummonCounts[entityName]))
     else
         if not LM.db.global.familySummonCounts then
             LM.db.global.familySummonCounts = {}
         end
         LM.db.global.familySummonCounts[entityName] = 
             (LM.db.global.familySummonCounts[entityName] or 0) + 1
-        return LM.db.global.familySummonCounts[entityName]
+        LM.Debug("New family count: " .. tostring(LM.db.global.familySummonCounts[entityName]))
     end
 end
+
 --[[----------------------------------------------------------------------------
     Import/Export Profile
 ----------------------------------------------------------------------------]]--
