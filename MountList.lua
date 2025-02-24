@@ -7,6 +7,53 @@ local _, LM = ...
 LM.MountList = LM.MountList or { }  -- Initialize if it doesn't exist
 LM.MountList.__index = LM.MountList
 
+local SortFunctions = {
+    ['default'] = function(a, b)
+        -- Groups first, then families, then collected mounts, then uncollected
+        if a.isGroup ~= b.isGroup then
+            return a.isGroup
+        elseif a.isFamily ~= b.isFamily then
+            return a.isFamily
+        elseif not a.isGroup and not a.isFamily then
+            -- Regular mounts
+            if a:IsCollected() ~= b:IsCollected() then
+                return a:IsCollected()
+            end
+        end
+        return a.name < b.name
+    end,
+    
+    ['name'] = function(a, b)
+        return a.name < b.name
+    end,
+    
+    ['rarity'] = function(a, b)
+        -- Groups and families at bottom
+        if a.isGroup or a.isFamily then
+            if not (b.isGroup or b.isFamily) then
+                return false
+            end
+        elseif b.isGroup or b.isFamily then
+            return true
+        end
+        
+        if not a.isGroup and not a.isFamily then
+            return (a:GetRarity() or 101) < (b:GetRarity() or 101)
+        end
+        return a.name < b.name
+    end,
+    
+    ['summons'] = function(a, b)
+        local aCount = a:GetSummonCount()
+        local bCount = b:GetSummonCount()
+        
+        if aCount == bCount then
+            return a.name < b.name
+        end
+        return aCount > bCount
+    end,
+}
+
 function LM.MountList:New(ml)
     return setmetatable(ml or {}, LM.MountList)
 end
@@ -57,7 +104,9 @@ function LM.MountList:GetCombinedList()
                 priority = LM.Options:GetGroupPriority(groupName),
                 GetPriority = function() return LM.Options:GetGroupPriority(groupName) end,
                 IsCollected = function() return true end,
-                GetSummonCount = function() return 0 end
+                GetSummonCount = function() 
+				return LM.Options:GetEntitySummonCount(true, groupName)
+				end
             }
             table.insert(combinedList, groupMount)
         end
@@ -73,7 +122,9 @@ function LM.MountList:GetCombinedList()
                 priority = LM.Options:GetFamilyPriority(familyName),
                 GetPriority = function() return LM.Options:GetFamilyPriority(familyName) end,
                 IsCollected = function() return true end,
-                GetSummonCount = function() return 0 end
+                GetSummonCount = function() 
+				return LM.Options:GetEntitySummonCount(false, familyName)
+				end
             }
             table.insert(combinedList, familyMount)
         end
@@ -290,63 +341,29 @@ function LM.GetUsableMountsFromEntity(isGroup, entityName)
 end
 
 -- New direct summoning helper function that bypasses the usual mount selection logic
+
 function LM.DirectlySummonRandomMountFromEntity(isGroup, entityName)
-    -- Get search text directly from the UI 
-    local searchText = ""
-    if LiteMountFilter and LiteMountFilter.Search then
-        searchText = LiteMountFilter.Search:GetText() or ""
-    end
-    if searchText == SEARCH then searchText = "" end
-    local isSearching = searchText ~= ""
-    
-    -- Get eligible mounts
-    local eligibleMounts = {}
-    local foundEligibleMounts = false
-    
-    for _, mount in ipairs(LM.MountRegistry.mounts) do
-        -- Check if mount is in the entity
-        local isInEntity = false
-        if isGroup then
-            isInEntity = LM.Options:IsMountInGroup(mount, entityName)
-        else
-            isInEntity = LM.Options:IsMountInFamily(mount, entityName)
-        end
-        
-        -- Only include mounts that meet all criteria
-        if isInEntity and mount:IsCollected() and mount:IsUsable() and mount:GetPriority() > 0 then
-            -- Check search filter if searching
-            local matchesSearch = true
-            if isSearching then
-                matchesSearch = string.find(string.lower(mount.name), string.lower(searchText), 1, true) ~= nil
-            end
-            
-            if matchesSearch then
-                table.insert(eligibleMounts, mount)
-                foundEligibleMounts = true
-            end
-        end
-    end
-    
-    -- If we found eligible mounts, summon one directly
-    if foundEligibleMounts and #eligibleMounts > 0 then
-        -- Select random mount based on weight style
+    local mounts = LM.GetMountsFromEntity(isGroup, entityName)
+    if #mounts > 0 then
         local style = LM.Options:GetOption('randomWeightStyle') 
-        local randomIndex = math.random(#eligibleMounts)
-        local selectedMount = eligibleMounts[randomIndex]
+        local selectedMount = mounts:Random(nil, style)
         
-        -- Direct summon (bypassing any other addon logic)
         if selectedMount and selectedMount.mountID then
-            LM.Debug("Directly summoning: " .. selectedMount.name)
+            -- Increment entity summon count
+            LM.Options:IncrementEntitySummonCount(isGroup, entityName)
+            
+            LM.Debug("Directly summoning: " .. selectedMount.name .. 
+                     " from " .. (isGroup and "group: " or "family: ") .. entityName)
             C_MountJournal.SummonByID(selectedMount.mountID)
+            selectedMount:OnSummon()
             return true
         end
     end
-    
-    -- No summon happened
     return false
 end
 
 -- Rest of the MountList.lua code remains exactly the same as before, starting from Copy() function
+
 
 function LM.MountList:Copy()
     local out = { }
@@ -787,27 +804,6 @@ function LM.MountList:Limit(limits)
     end
     return mounts
 end
-
-local SortFunctions = {
-    ['default'] =
-        function (a, b)
-            if a:IsCollected() and not b:IsCollected() then return true end
-            if not a:IsCollected() and b:IsCollected() then return false end
-            return a.name < b.name
-        end,
-    ['name'] =
-        function (a, b)
-            return a.name < b.name
-        end,
-    ['rarity'] =
-        function (a, b)
-            return ( a:GetRarity() or 101 ) < ( b:GetRarity() or 101 )
-        end,
-    ['summons'] =
-        function (a, b)
-            return a:GetSummonCount() > b:GetSummonCount()
-        end,
-}
 
 function LM.MountList:Sort(key)
     table.sort(self, SortFunctions[key] or SortFunctions.default)

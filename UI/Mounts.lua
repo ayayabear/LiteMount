@@ -319,14 +319,11 @@ function LiteMountMountIconMixin:OnEnter()
 
     if parent.family or (type(item) == "table" and item.isFamily) then
         local familyName = type(item) == "string" and item or item.name
-        
-        -- Get family status AND check mounts for this search
         local familyStatus = LM.GetGroupOrFamilyStatus(false, familyName)
         local mounts = LM.GetMountsFromEntity(false, familyName)
-        
-        -- Count usable mounts for tooltip
         local usableMounts = 0
         local totalMounts = 0
+        
         for _, mount in ipairs(LM.MountRegistry.mounts) do
             if LM.Options:IsMountInFamily(mount, familyName) then
                 totalMounts = totalMounts + 1
@@ -336,14 +333,15 @@ function LiteMountMountIconMixin:OnEnter()
             end
         end
         
-        -- Get family priority
         local priority = LM.Options:GetFamilyPriority(familyName) or 0
+        local summonCount = LM.Options:GetEntitySummonCount(false, familyName)
         
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT", 8)
         GameTooltip:AddLine(familyName, 0, 0.7, 1)
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Priority: " .. priority)
         GameTooltip:AddLine("Usable Mounts: " .. usableMounts .. "/" .. totalMounts)
+        GameTooltip:AddLine("Total Summons: " .. summonCount)
         
         if familyStatus.isRed then
             GameTooltip:AddLine(" ")
@@ -359,14 +357,11 @@ function LiteMountMountIconMixin:OnEnter()
         
     elseif parent.group or (type(item) == "table" and item.isGroup) then
         local groupName = type(item) == "string" and item or item.name
-        
-        -- Get group status
         local groupStatus = LM.GetGroupOrFamilyStatus(true, groupName)
         local mounts = LM.GetMountsFromEntity(true, groupName)
-        
-        -- Count usable mounts for tooltip
         local usableMounts = 0
         local totalMounts = 0
+        
         for _, mount in ipairs(LM.MountRegistry.mounts) do
             if LM.Options:IsMountInGroup(mount, groupName) then
                 totalMounts = totalMounts + 1
@@ -376,14 +371,15 @@ function LiteMountMountIconMixin:OnEnter()
             end
         end
         
-        -- Get group priority
         local priority = LM.Options:GetGroupPriority(groupName) or 0
+        local summonCount = LM.Options:GetEntitySummonCount(true, groupName)
         
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT", 8)
         GameTooltip:AddLine(groupName, 1, 1, 0)  -- Yellow for groups
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Priority: " .. priority)
         GameTooltip:AddLine("Usable Mounts: " .. usableMounts .. "/" .. totalMounts)
+        GameTooltip:AddLine("Total Summons: " .. summonCount)
         
         if groupStatus.isRed then
             GameTooltip:AddLine(" ")
@@ -399,14 +395,12 @@ function LiteMountMountIconMixin:OnEnter()
             GameTooltip:AddLine("Right-Click to summon random mount from group")
         end
         GameTooltip:Show()
-        
     else
         -- Regular mount tooltip
         LiteMountTooltip:SetOwner(self, "ANCHOR_RIGHT", 8)
         LiteMountTooltip:SetMount(item, true)
     end
 end
-
 
 function LiteMountMountIconMixin:OnLeave()
     GameTooltip:Hide()

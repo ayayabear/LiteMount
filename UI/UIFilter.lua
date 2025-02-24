@@ -122,30 +122,32 @@ end
 
 function LM.UIFilter.UpdateCache()
     LM.Debug("Starting UpdateCache")
-    table.wipe(LM.UIFilter.filteredMountList)  -- Clear existing list
-    
-    -- Get both normal mount list and combined list with groups/families
-    local mountList = LM.MountRegistry.mounts
-    local combinedList = mountList:GetCombinedList()
-    
-    LM.Debug("UpdateCache: Got " .. #mountList .. " mounts and " .. #combinedList .. " combined items")
-    
-    -- Track what gets filtered in
-    local addedItems = 0
-    for _, item in ipairs(combinedList) do
+    table.wipe(LM.UIFilter.filteredMountList)
+
+    -- Debug current filter state
+    LM.Debug("Active filters:")
+    local groupFilters = {}
+    for g in pairs(LM.UIFilter.filterList.group) do
+        table.insert(groupFilters, g)
+    end
+    LM.Debug("- Groups: " .. table.concat(groupFilters, ", "))
+
+    local familyFilters = {}
+    for f in pairs(LM.UIFilter.filterList.family) do
+        table.insert(familyFilters, f)
+    end
+    LM.Debug("- Families: " .. table.concat(familyFilters, ", "))
+
+    for _, item in ipairs(LM.MountRegistry.mounts:GetCombinedList()) do
         if not LM.UIFilter.IsFilteredMount(item) then
             table.insert(LM.UIFilter.filteredMountList, item)
-            addedItems = addedItems + 1
-            if item.isGroup then
-                LM.Debug("Added group: " .. item.name)
-            elseif item.isFamily then
-                LM.Debug("Added family: " .. item.name)
-            else
-                LM.Debug("Added mount: " .. item.name)
+            if item.isGroup or item.isFamily then
+                --LM.Debug("Added " .. (item.isGroup and "group: " or "family: ") .. item.name)
             end
         end
     end
-    LM.Debug("UpdateCache: Added " .. addedItems .. " items to filtered list")
+    
+    LM.Debug("FilteredMountList now has " .. #LM.UIFilter.filteredMountList .. " items")
 end
 
 function LM.UIFilter.ClearCache()
@@ -364,11 +366,8 @@ end
 
 -- Groups ----------------------------------------------------------------------
 
-function LM.UIFilter.IsGroupChecked(g)
-    return not LM.UIFilter.filterList.group[g]
-end
-
 function LM.UIFilter.SetGroupFilter(g, v)
+    LM.Debug("Setting group filter: " .. g .. " = " .. tostring(v))
     LM.UIFilter.ClearCache()
     if v then
         LM.UIFilter.filterList.group[g] = nil
@@ -378,13 +377,46 @@ function LM.UIFilter.SetGroupFilter(g, v)
     callbacks:Fire('OnFilterChanged')
 end
 
+function LM.UIFilter.SetFamilyFilter(f, v)
+    LM.Debug("Setting family filter: " .. f .. " = " .. tostring(v))
+    LM.UIFilter.ClearCache()
+    if v then
+        LM.UIFilter.filterList.family[f] = nil
+    else
+        LM.UIFilter.filterList.family[f] = true
+    end
+    callbacks:Fire('OnFilterChanged')
+end
+
+function LM.UIFilter.IsGroupChecked(g)
+    return not LM.UIFilter.filterList.group[g]
+end
+
+function LM.UIFilter.IsFamilyChecked(f)
+    return not LM.UIFilter.filterList.family[f]
+end
+
 function LM.UIFilter.SetAllGroupFilters(v)
     LM.UIFilter.ClearCache()
-    for _,g in ipairs(LM.UIFilter.GetGroups()) do
-        if v then
-            LM.UIFilter.filterList.group[g] = nil
-        else
-            LM.UIFilter.filterList.group[g] = true
+    if v then
+        table.wipe(LM.UIFilter.filterList.group)
+    else
+        -- Get all groups
+        for _, groupName in ipairs(LM.Options:GetGroupNames()) do
+            LM.UIFilter.filterList.group[groupName] = true
+        end
+    end
+    callbacks:Fire('OnFilterChanged')
+end
+
+function LM.UIFilter.SetAllFamilyFilters(v)
+    LM.UIFilter.ClearCache()
+    if v then
+        table.wipe(LM.UIFilter.filterList.family)
+    else
+        -- Get all families
+        for _, familyName in ipairs(LM.Options:GetFamilyNames()) do
+            LM.UIFilter.filterList.family[familyName] = true
         end
     end
     callbacks:Fire('OnFilterChanged')
@@ -392,8 +424,8 @@ end
 
 function LM.UIFilter.GetGroups()
     local groups = LM.Options:GetGroupNames()
-    table.insert(groups, NONE)
-    return groups
+    table.sort(groups)  -- Sort alphabetically
+    return groups  -- No longer adding NONE
 end
 
 function LM.UIFilter.GetGroupText(f)
@@ -505,13 +537,22 @@ end
 function LM.UIFilter.IsFilteredMount(m)
     -- Handle groups and families first
     if m.isGroup or m.isFamily then
-        -- Only filter by search text
+        -- Text search handling
         local filtertext = LM.UIFilter.GetSearchText()
         if filtertext and filtertext ~= SEARCH and filtertext ~= "" then
             local matches = strfind(m.name:lower(), filtertext:lower(), 1, true)
-            LM.Debug("Checking " .. (m.isGroup and "group" or "family") .. ": " .. m.name .. 
-                     " against filter: " .. filtertext .. " -> " .. tostring(not not matches))
             return not matches
+        end
+
+        -- Group/Family filter handling
+        if m.isGroup then
+            -- Return true (filter out) if the group is NOT checked
+            LM.Debug("Checking group filter for: " .. m.name .. " = " .. tostring(LM.UIFilter.filterList.group[m.name]))
+            return LM.UIFilter.filterList.group[m.name] or false
+        elseif m.isFamily then
+            -- Return true (filter out) if the family is NOT checked
+            LM.Debug("Checking family filter for: " .. m.name .. " = " .. tostring(LM.UIFilter.filterList.family[m.name]))
+            return LM.UIFilter.filterList.family[m.name] or false
         end
         return false
     end
@@ -521,7 +562,6 @@ function LM.UIFilter.IsFilteredMount(m)
     if not source or source == 0 then
         source = LM.UIFilter.GetNumSources()
     end
-
     if LM.UIFilter.filterList.source[source] == true then
         return true
     end

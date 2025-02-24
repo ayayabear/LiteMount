@@ -155,48 +155,93 @@ end
 
 function LM.UIFilter.IsFilteredMount(mount)
     if not mount then return true end
-    
+
     -- Special handling for groups with text search
     local filtertext = LM.UIFilter.GetSearchText()
-    
+
     -- For groups/families
     if mount.isGroup or mount.isFamily then
+        -- Checkbox filter
+        if mount.isGroup and LM.UIFilter.filterList.group[mount.name] then
+            LM.Debug("Filtering out group " .. mount.name .. " due to checkbox")
+            return true
+        elseif mount.isFamily and LM.UIFilter.filterList.family[mount.name] then
+            LM.Debug("Filtering out family " .. mount.name .. " due to checkbox")
+            return true
+        end
+
         -- Check usability first
         local status = LM.GetGroupOrFamilyStatus(mount.isGroup, mount.name)
         if status.isRed and LM.UIFilter.filterList.other.UNUSABLE then
             return true
         end
-        
-        -- Check type filters if any are active
-        if next(LM.UIFilter.filterList.flag) then
+
+        -- Priority filter
+        if next(LM.UIFilter.filterList.priority) then
+            local entityPriority
+            if mount.isGroup then
+                entityPriority = LM.Options:GetGroupPriority(mount.name)
+            else
+                entityPriority = LM.Options:GetFamilyPriority(mount.name)
+            end
+
+            if LM.UIFilter.filterList.priority[entityPriority] then
+                LM.Debug("Filtering out " .. (mount.isGroup and "group" or "family") ..
+                         " " .. mount.name .. " due to priority filter")
+                return true
+            end
+        end
+
+        -- Type and Source filters
+        if next(LM.UIFilter.filterList.typename) or
+           next(LM.UIFilter.filterList.source) or
+           next(LM.UIFilter.filterList.flag) then
+
             local mounts = LM.GetMountsFromEntity(mount.isGroup, mount.name)
             local hasMatchingMount = false
-            
+
             for _, m in ipairs(mounts) do
-                -- Get mount's flags
-                local mountFlags = m:GetFlags()
-                local matchesAnyActiveFilter = false
-                
-                -- Check each possible type flag
-                for flag, isFiltered in pairs(LM.UIFilter.filterList.flag) do
-                    -- We only care about movement type flags
-                    if flag == "AQUATIC" or flag == "GROUND" or flag == "FLYING" or flag == "DRAGONRIDING" then
-                        -- If flag is not filtered (isFiltered is false) and mount has this flag
-                        if not isFiltered and mountFlags[flag] then
-                            matchesAnyActiveFilter = true
+                local passes = true
+
+                -- Check typename filters
+                if next(LM.UIFilter.filterList.typename) then
+                    local typeInfo = LM.MOUNT_TYPE_INFO[m.mountTypeID or 0]
+                    if typeInfo and LM.UIFilter.filterList.typename[typeInfo.name] then
+                        passes = false
+                    end
+                end
+
+                -- Check source filters
+                if passes and next(LM.UIFilter.filterList.source) then
+                    local source = m.sourceType
+                    if not source or source == 0 then
+                        source = LM.UIFilter.GetNumSources()
+                    end
+                    if LM.UIFilter.filterList.source[source] then
+                        passes = false
+                    end
+                end
+
+                -- Check flag filters
+                if passes and next(LM.UIFilter.filterList.flag) then
+                    local mountFlags = m:GetFlags()
+                    for flag, isFiltered in pairs(LM.UIFilter.filterList.flag) do
+                        if isFiltered and mountFlags[flag] then
+                            passes = false
                             break
                         end
                     end
                 end
-                
-                if matchesAnyActiveFilter then
+
+                if passes then
                     hasMatchingMount = true
                     break
                 end
             end
-            
-            -- Filter out if no contained mounts match active type filters
+
             if not hasMatchingMount then
+                LM.Debug("Filtering out " .. (mount.isGroup and "group" or "family") ..
+                         " " .. mount.name .. " due to type/source/flag filters")
                 return true
             end
         end
@@ -205,10 +250,10 @@ function LM.UIFilter.IsFilteredMount(mount)
         if filtertext and filtertext ~= SEARCH and filtertext ~= "" then
             -- Existing search logic...
         end
-        
+
         return false
     end
-    
+
     -- Source filters
     local source = mount.sourceType
     if not source or source == 0 then

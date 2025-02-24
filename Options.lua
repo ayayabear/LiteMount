@@ -1129,6 +1129,42 @@ function LM.Options:ResetSummonCount(m)
 end
 
 
+
+function LM.Options:GetSummonCount(item)
+    if item.isGroup then
+        return (LM.db.global.groupSummonCounts or {})[item.name] or 0
+    elseif item.isFamily then
+        return (LM.db.global.familySummonCounts or {})[item.name] or 0
+    else
+        return LM.db.global.summonCounts[item.spellID] or 0
+    end
+end
+
+function LM.Options:GetEntitySummonCount(isGroup, entityName)
+    if isGroup then
+        return (LM.db.global.groupSummonCounts or {})[entityName] or 0
+    else
+        return (LM.db.global.familySummonCounts or {})[entityName] or 0
+    end
+end
+
+function LM.Options:IncrementEntitySummonCount(isGroup, entityName)
+    if isGroup then
+        if not LM.db.global.groupSummonCounts then
+            LM.db.global.groupSummonCounts = {}
+        end
+        LM.db.global.groupSummonCounts[entityName] = 
+            (LM.db.global.groupSummonCounts[entityName] or 0) + 1
+        return LM.db.global.groupSummonCounts[entityName]
+    else
+        if not LM.db.global.familySummonCounts then
+            LM.db.global.familySummonCounts = {}
+        end
+        LM.db.global.familySummonCounts[entityName] = 
+            (LM.db.global.familySummonCounts[entityName] or 0) + 1
+        return LM.db.global.familySummonCounts[entityName]
+    end
+end
 --[[----------------------------------------------------------------------------
     Import/Export Profile
 ----------------------------------------------------------------------------]]--
