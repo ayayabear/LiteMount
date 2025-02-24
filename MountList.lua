@@ -26,9 +26,9 @@ end
 
 function LM.MountList:GetCombinedList()
     -- If we already have a cached list and nothing has changed, return it
-    if self.cachedCombinedList and
+    if self.cachedCombinedList and 
        self.cachedSearchText == LM.UIFilter.GetSearchText() then
-        LM.Debug("Returning cached list with " .. #self.cachedCombinedList .. " items")
+		LM.Debug("Returning cached list with " .. #self.cachedCombinedList .. " items")
         return self.cachedCombinedList
     end
 
@@ -36,8 +36,7 @@ function LM.MountList:GetCombinedList()
     local groups = LM.Options:GetGroupNames()
     local families = LM.Options:GetFamilyNames()
 
-    LM.Debug("Found " .. #groups .. " groups and " .. #families .. " families")
-
+	    LM.Debug("Found " .. #groups .. " groups and " .. #families .. " families")
     -- Get search text for filtering
     local filtertext = LM.UIFilter.GetSearchText()
     local isSearching = filtertext and filtertext ~= SEARCH and filtertext ~= ""
@@ -48,11 +47,9 @@ function LM.MountList:GetCombinedList()
         return string.find(string.lower(name), string.lower(filtertext), 1, true) ~= nil
     end
 
-    -- Add groups that match search AND are not filtered out
+    -- Add groups that match search
     for _, groupName in ipairs(groups) do
-        if matchesSearch(groupName) and
-           not (LM.UIFilter.filterList.group and
-                LM.UIFilter.filterList.group[groupName]) then
+        if matchesSearch(groupName) then
             local groupMount = {
                 isGroup = true,
                 name = groupName,

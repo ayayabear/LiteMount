@@ -1,1 +1,0 @@
-UIErrorsFrame = CreateFrame('ChatFrame', 'UIErrorsFrame')

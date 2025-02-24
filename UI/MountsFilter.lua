@@ -155,19 +155,10 @@ end
 
 function LM.UIFilter.IsFilteredMount(mount)
     if not mount then return true end
-
-    -- Special handling for group pseudo-mounts
-    if mount.isGroup then
-        -- Check if this group is filtered out
-        if LM.UIFilter.filterList.group and
-           LM.UIFilter.filterList.group[mount.name] == true then
-            return true
-        end
-    end
-
+    
     -- Special handling for groups with text search
     local filtertext = LM.UIFilter.GetSearchText()
-
+    
     -- For groups/families
     if mount.isGroup or mount.isFamily then
         -- Check usability first
@@ -175,17 +166,17 @@ function LM.UIFilter.IsFilteredMount(mount)
         if status.isRed and LM.UIFilter.filterList.other.UNUSABLE then
             return true
         end
-
+        
         -- Check type filters if any are active
         if next(LM.UIFilter.filterList.flag) then
             local mounts = LM.GetMountsFromEntity(mount.isGroup, mount.name)
             local hasMatchingMount = false
-
+            
             for _, m in ipairs(mounts) do
                 -- Get mount's flags
                 local mountFlags = m:GetFlags()
                 local matchesAnyActiveFilter = false
-
+                
                 -- Check each possible type flag
                 for flag, isFiltered in pairs(LM.UIFilter.filterList.flag) do
                     -- We only care about movement type flags
@@ -197,13 +188,13 @@ function LM.UIFilter.IsFilteredMount(mount)
                         end
                     end
                 end
-
+                
                 if matchesAnyActiveFilter then
                     hasMatchingMount = true
                     break
                 end
             end
-
+            
             -- Filter out if no contained mounts match active type filters
             if not hasMatchingMount then
                 return true
@@ -214,30 +205,10 @@ function LM.UIFilter.IsFilteredMount(mount)
         if filtertext and filtertext ~= SEARCH and filtertext ~= "" then
             -- Existing search logic...
         end
-
+        
         return false
     end
-
-    -- Existing group filtering for regular mounts
-    if mount.GetGroups then
-        local mountGroups = mount:GetGroups()
-        if not next(mountGroups) then
-            if LM.UIFilter.filterList.group and
-               LM.UIFilter.filterList.group[NONE] then
-                return true
-            end
-        else
-            local isFiltered = true
-            for g in pairs(mountGroups) do
-                if not (LM.UIFilter.filterList.group and
-                        LM.UIFilter.filterList.group[g]) then
-                    isFiltered = false
-                end
-            end
-            if isFiltered then return true end
-        end
-    end
-
+    
     -- Source filters
     local source = mount.sourceType
     if not source or source == 0 then
@@ -289,18 +260,33 @@ function LM.UIFilter.IsFilteredMount(mount)
         end
     end
 
-    -- Flag filters
--- Flag filters
-if mount.GetFlags and next(LM.UIFilter.filterList.flag) then
-    local isFiltered = true
-    for f in pairs(mount:GetFlags()) do
-        if LM.FLAG[f] ~= nil and not LM.UIFilter.filterList.flag[f] then
-            isFiltered = false
-            break
+    -- Groups filter (including NONE for ungrouped mounts)
+    if mount.GetGroups then
+        local mountGroups = mount:GetGroups()
+        if not next(mountGroups) then
+            if LM.UIFilter.filterList.group[NONE] then return true end
+        else
+            local isFiltered = true
+            for g in pairs(mountGroups) do
+                if not LM.UIFilter.filterList.group[g] then
+                    isFiltered = false
+                end
+            end
+            if isFiltered then return true end
         end
     end
-    if isFiltered then return true end
-end
+
+    -- Flag filters
+    if mount.GetFlags and next(LM.UIFilter.filterList.flag) then
+        local isFiltered = true
+        for f in pairs(mount:GetFlags()) do
+            if LM.FLAG[f] ~= nil and not LM.UIFilter.filterList.flag[f] then
+                isFiltered = false
+                break
+            end
+        end
+        if isFiltered then return true end
+    end
 
     -- Search text from the input box
     if not filtertext or filtertext == SEARCH or filtertext == "" then
