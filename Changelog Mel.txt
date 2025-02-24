@@ -22,4 +22,3 @@ Families Menu:
 
 Remaining To-Dos:
 	Make Groups and Families compatible with the summon count feature.
-	Restore right click to summon mount functionality.

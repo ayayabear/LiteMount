@@ -406,102 +406,29 @@ function LiteMountMountIconMixin:OnLeave()
     GameTooltip:Hide()
     LiteMountTooltip:Hide()
 end
--- 
-function LiteMountMountIconMixin:HandleGroupFamilySummon(parent)
-    if not parent.group and not parent.family then return false end
-    
-    -- Only handle right-click summoning
-    local button = GetMouseButtonClicked()
-    if button ~= "RightButton" then return false end
-    
-    -- Block the summon to prevent the bug from occurring
-    LM.Debug("Blocking right-click summon for " .. 
-             (parent.group and "group: " .. parent.group or "family: " .. parent.family))
-    
-    return true -- Return true to indicate we handled the click
-end
-
--- Modify the original OnClickHook to use our helper
-function LiteMountMountIconMixin:OnClickHook(mouseButton, isDown)
-    local parent = self:GetParent()
-    
-    LM.Debug("Mount icon clicked: " .. button .. " for " .. 
-             (parent.mount and "mount " .. parent.mount.name or
-              parent.group and "group " .. parent.group or
-              parent.family and "family " .. parent.family or
-              "unknown"))
-
-    if button == "RightButton" then
-        -- Handle mount summoning
-        if parent.mount and parent.mount.mountID then
-            -- Direct mount summoning
-            C_MountJournal.SummonByID(parent.mount.mountID)
-            parent.mount:OnSummon()
-        elseif parent.group or parent.family then
-            -- Group/Family summoning
-            local entityName = parent.group or parent.family
-            local isGroup = parent.group ~= nil
-            
-            -- Get filtered list of mounts
-            local mounts = LM.GetMountsFromEntity(isGroup, entityName)
-            
-            if #mounts > 0 then
-                -- Select mount using current weight style
-                local style = LM.Options:GetOption('randomWeightStyle')
-                local selectedMount = mounts:Random(nil, style)
-                
-                if selectedMount and selectedMount.mountID then
-                    -- First increment the entity counter
-                    LM.Options:IncrementEntitySummonCount(isGroup, entityName)
-                    
-                    -- Then summon the mount and trigger its OnSummon
-                    C_MountJournal.SummonByID(selectedMount.mountID)
-                    selectedMount:OnSummon()
-                end
-            end
-        end
-    elseif button == "LeftButton" then
-        -- Handle left-click navigation and chat linking
-        if IsModifiedClick("CHATLINK") and parent.mount then
-            local mountLink = GetSpellLink(parent.mount.spellID)
-            if mountLink then
-                ChatEdit_InsertLink(mountLink)
-            end
-        elseif parent.group then
-            LiteMountGroupsPanel.Groups.selectedGroup = parent.group
-            Settings.OpenToCategory(LiteMountGroupsPanel.category.ID)
-            LiteMountGroupsPanel:Update()
-        elseif parent.family then
-            LiteMountFamiliesPanel.Families.selectedFamily = parent.family
-            Settings.OpenToCategory(LiteMountFamiliesPanel.category.ID)
-            LiteMountFamiliesPanel:Update()
-        end
-    end
-end
-
--- Replace OnClickHook
 
 function LiteMountMountIconMixin:OnLoad()
     self:SetAttribute("unit", "player")
     self:RegisterForClicks("AnyUp")
     self:RegisterForDrag("LeftButton")
     
-    -- Replace the OnClick handler completely instead of hooking it
-    self:SetScript("OnClick", function(self, button, isDown)
-        local parent = self:GetParent()
+    -- Single, unified click handler - no hooking
+    self:SetScript("OnClick", function(iconSelf, button, isDown)
+        local parent = iconSelf:GetParent()
+        if not parent then return end
         
-        LM.Debug("Icon clicked: " .. button .. " on " .. 
-                (parent.group and "group: " .. parent.group or 
-                 parent.family and "family: " .. parent.family or 
-                 parent.mount and "mount: " .. parent.mount.name or "unknown"))
+        -- Safe debug message that won't cause errors with nil values
+        local itemType = parent.mount and "mount" or 
+                        parent.group and "group" or 
+                        parent.family and "family" or "unknown"
+        local itemName = parent.mount and parent.mount.name or 
+                        parent.group or 
+                        parent.family or "unknown"
+        
+        LM.Debug("Icon clicked: " .. button .. " on " .. itemType .. " " .. itemName)
         
         -- Handle left-click navigation
         if button == "LeftButton" then
-            -- Call the original PreClick for chat link functionality
-            if self.PreClick then
-                self:PreClick(button, isDown)
-            end
-            
             if parent.group then
                 LiteMountGroupsPanel.Groups.selectedGroup = parent.group
                 Settings.OpenToCategory(LiteMountGroupsPanel.category.ID)
@@ -511,7 +438,7 @@ function LiteMountMountIconMixin:OnLoad()
                 Settings.OpenToCategory(LiteMountFamiliesPanel.category.ID)
                 LiteMountFamiliesPanel:Update()
             elseif parent.mount and parent.mount.spellID then
-                -- For regular mounts, allow chat linking
+                -- For regular mounts, allow chat linking or spell pickup
                 if IsModifiedClick("CHATLINK") then
                     local mountLink = GetSpellLink(parent.mount.spellID)
                     if mountLink then
@@ -524,31 +451,37 @@ function LiteMountMountIconMixin:OnLoad()
             end
         elseif button == "RightButton" then
             -- Handle mount summoning
-            if parent.group or parent.family then
+            if parent.mount and parent.mount.mountID then
+                -- Direct mount summoning
+                LM.Debug("Direct mount summoning: " .. parent.mount.name)
+                C_MountJournal.SummonByID(parent.mount.mountID)
+                parent.mount:OnSummon()
+            elseif parent.group or parent.family then
                 local entityName = parent.group or parent.family
                 local isGroup = parent.group ~= nil
                 
-                local mounts = LM.GetMountsFromEntity(isGroup, entityName)
-                
-                if #mounts > 0 then
-                    local style = LM.Options:GetOption('randomWeightStyle')
-                    local mount = mounts:Random(nil, style)
+                if entityName then
+                    LM.Debug("Attempting to summon from " .. (isGroup and "group: " or "family: ") .. entityName)
                     
-                    if mount and mount.mountID then
-                        LM.Debug("Summoning " .. mount.name .. " from " .. 
-                                (isGroup and "group: " or "family: ") .. entityName)
-                        C_MountJournal.SummonByID(mount.mountID)
-                        mount:OnSummon()
+                    local mounts = LM.GetMountsFromEntity(isGroup, entityName)
+                    
+                    if #mounts > 0 then
+                        local style = LM.Options:GetOption('randomWeightStyle')
+                        local mount = mounts:Random(nil, style)
+                        
+                        if mount and mount.mountID then
+                            LM.Debug("Summoning " .. mount.name)
+                            -- First increment the entity counter
+                            LM.Options:IncrementEntitySummonCount(isGroup, entityName)
+                            -- Then summon mount
+                            C_MountJournal.SummonByID(mount.mountID)
+                            mount:OnSummon()
+                        end
+                    else
+                        LM.Debug("No usable mounts found")
                     end
                 else
-                    LM.Debug("No usable mounts found in " .. 
-                            (isGroup and "group: " or "family: ") .. entityName)
-                end
-            elseif parent.mount and parent.mount.mountID then
-                -- Direct mount summoning
-                C_MountJournal.SummonByID(parent.mount.mountID)
-                if parent.mount.OnSummon then
-                    parent.mount:OnSummon()
+                    LM.Debug("No entity name found")
                 end
             end
         end
@@ -562,121 +495,12 @@ function LiteMountMountIconMixin:OnDragStart()
     end
 end
 
-function LM.GetMountsFromEntity(isGroup, entityName)
-    local mounts = LM.MountList:New()
-    
-    -- When getting mounts for summoning, ignore search filter
-    local context = LiteMountOptions.CurrentOptionsPanel
-    local isSummoning = not context or (context ~= LiteMountGroupsPanel and context ~= LiteMountFamiliesPanel)
-    
-    -- Get current search state
-    local filtertext = isSummoning and "" or LM.UIFilter.GetSearchText()
-    local isSearching = filtertext and filtertext ~= SEARCH and filtertext ~= ""
-
-    for _, mount in ipairs(LM.MountRegistry.mounts) do
-        local isInEntity = false
-        if isGroup then
-            isInEntity = LM.Options:IsMountInGroup(mount, entityName)
-        else
-            isInEntity = LM.Options:IsMountInFamily(mount, entityName)
-        end
-        
-        -- Only check if mount is in entity, collected, usable and has priority
-        if isInEntity and mount:IsCollected() and mount:IsUsable() and mount:GetPriority() > 0 then
-            -- Check faction requirements
-            local isRightFaction = true
-            if mount.mountID then
-                local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
-                if isFactionSpecific then
-                    local playerFaction = UnitFactionGroup('player')
-                    isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
-                                   (playerFaction == 'Alliance' and faction == 1)
-                end
-            end
-            
-            -- Check if mount matches search if searching
-            local matchesSearch = true
-            if isSearching then
-                matchesSearch = strfind(mount.name:lower(), filtertext:lower(), 1, true)
-            end
-
-            -- Add mount if it passes all checks
-            if isRightFaction and (not isSearching or matchesSearch) then
-                table.insert(mounts, mount)
-            end
-        end
-    end
-
-    return mounts
-end
-
--- Status checking function used by UI
-function LM.GetGroupOrFamilyStatus(isGroup, name)
-    local hasUsableMounts = false
-    local hasCollectedMounts = false
-    local hasPriorityMounts = false
-    
-    for _, mount in ipairs(LM.MountRegistry.mounts) do
-        local isMountInEntity = false
-        
-        if isGroup then
-            isMountInEntity = LM.Options:IsMountInGroup(mount, name)
-        else
-            isMountInEntity = LM.Options:IsMountInFamily(mount, name)
-        end
-        
-        if isMountInEntity then
-            -- Check if mount has priority > 0
-            if mount:GetPriority() > 0 then
-                hasPriorityMounts = true
-                
-                -- Check faction
-                local isRightFaction = true
-                if mount.mountID then
-                    local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
-                    if isFactionSpecific then
-                        local playerFaction = UnitFactionGroup('player')
-                        isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
-                                       (playerFaction == 'Alliance' and faction == 1)
-                    end
-                end
-                
-                if mount:IsCollected() then
-                    hasCollectedMounts = true
-                    
-                    -- Only count as usable if it's the right faction and can be summoned
-                    if isRightFaction and mount:IsUsable() then
-                        hasUsableMounts = true
-                    end
-                end
-            end
-        end
-    end
-    
-    -- A group/family is:
-    -- - Normal if it has at least one usable mount with priority > 0
-    -- - Red if it has mounts with priority > 0 but none are usable
-    -- - Gray if it has no mounts with priority > 0
-    local isRed = hasPriorityMounts and hasCollectedMounts and not hasUsableMounts
-    
-    return {
-        hasCollectedMounts = hasCollectedMounts,
-        hasUsableMounts = hasUsableMounts,
-        hasPriorityMounts = hasPriorityMounts,
-        isRed = isRed,
-        shouldBeGray = not hasPriorityMounts
-    }
-end
-
--- Helper function specific to family mount collection
 
 --[[------------------------------------------------------------------------]]--
 
 LiteMountMountButtonMixin = {}
 
 function LiteMountMountButtonMixin:Update(bitFlags, item)
-    --LM.Debug("Button Update start for " .. (item.isFamily and "family " .. item.name or item.isGroup and "group " .. item.name or "mount " .. item.name))
-
     -- Clear all references first
     self.mount = nil
     self.group = nil
@@ -704,7 +528,7 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
             self.Name:SetTextColor(0, 0.7, 1)  -- Blue color for families
         end
 
--- Get family status AND check mounts for this search
+        -- Get family status AND check mounts for this search
         local familyStatus = LM.GetGroupOrFamilyStatus(false, item.name)
         local mounts = LM.GetMountsFromEntity(false, item.name)
         local hasMatchingMounts = #mounts > 0
@@ -771,32 +595,32 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
             self.Name:SetTextColor(1, 1, 0)  -- Yellow color for groups
         end
 
-		-- For groups
-		local groupStatus = LM.GetGroupOrFamilyStatus(true, item.name)
+        -- For groups
+        local groupStatus = LM.GetGroupOrFamilyStatus(true, item.name)
 
-		if groupStatus.shouldBeGray then
-		-- Gray out if all mounts are priority 0
-			if self.Icon and self.Icon:GetNormalTexture() then
-			self.Icon:GetNormalTexture():SetDesaturated(true)
-			self.Icon:GetNormalTexture():SetVertexColor(1, 1, 1)
-		end
-		self.Name:SetFontObject("GameFontDisableLarge")
-		elseif groupStatus.isRed then
-		-- Red if has mounts with priority > 0 but none are usable
-			if self.Icon and self.Icon:GetNormalTexture() then
-			self.Icon:GetNormalTexture():SetDesaturated(true)
-			self.Icon:GetNormalTexture():SetVertexColor(0.6, 0.2, 0.2)
-		end
-		self.Name:SetFontObject("GameFontNormalLarge")
-		else
-    -- Normal appearance if has usable mounts with priority > 0
-    if self.Icon and self.Icon:GetNormalTexture() then
-        self.Icon:GetNormalTexture():SetDesaturated(false)
-        self.Icon:GetNormalTexture():SetVertexColor(1, 1, 1)
-    end
-    self.Name:SetFontObject("GameFontNormalLarge")
-    self.Name:SetTextColor(1, 1, 0)  -- Yellow color for groups
-end
+        if groupStatus.shouldBeGray then
+            -- Gray out if all mounts are priority 0
+            if self.Icon and self.Icon:GetNormalTexture() then
+                self.Icon:GetNormalTexture():SetDesaturated(true)
+                self.Icon:GetNormalTexture():SetVertexColor(1, 1, 1)
+            end
+            self.Name:SetFontObject("GameFontDisableLarge")
+        elseif groupStatus.isRed then
+            -- Red if has mounts with priority > 0 but none are usable
+            if self.Icon and self.Icon:GetNormalTexture() then
+                self.Icon:GetNormalTexture():SetDesaturated(true)
+                self.Icon:GetNormalTexture():SetVertexColor(0.6, 0.2, 0.2)
+            end
+            self.Name:SetFontObject("GameFontNormalLarge")
+        else
+            -- Normal appearance if has usable mounts with priority > 0
+            if self.Icon and self.Icon:GetNormalTexture() then
+                self.Icon:GetNormalTexture():SetDesaturated(false)
+                self.Icon:GetNormalTexture():SetVertexColor(1, 1, 1)
+            end
+            self.Name:SetFontObject("GameFontNormalLarge")
+            self.Name:SetTextColor(1, 1, 0)  -- Yellow color for groups
+        end
 
         -- Hide mount-specific UI elements safely
         for i = 1, 4 do
@@ -867,53 +691,107 @@ end
         self.Priority:Update()
     end
 
-    -- Add the new code here
-if (self.group or self.family) and not InCombatLockdown() then
-    -- Setup secure attributes for groups/families
-    local button = self.Icon
-    button:SetAttribute("type", "macro")
-    button:SetAttribute("macrotext2", "") -- Right click
-    button:SetAttribute("macrotext1", "") -- Left click
+    if not InCombatLockdown() then
+        local button = self.Icon
 
-    -- Handle clicks through OnClick rather than clickHookFunction
-    button:SetScript("OnClick", function(self, mouseButton, isDown)
-        local parent = self:GetParent()
-        
-        if mouseButton == "LeftButton" then
-            if parent.group then
-                LiteMountGroupsPanel.Groups.selectedGroup = parent.group
-                Settings.OpenToCategory(LiteMountGroupsPanel.category.ID)
-                LiteMountGroupsPanel:Update()
-            elseif parent.family then
-                LiteMountFamiliesPanel.Families.selectedFamily = parent.family
-                Settings.OpenToCategory(LiteMountFamiliesPanel.category.ID)
-                LiteMountFamiliesPanel:Update()
-            end
-        elseif mouseButton == "RightButton" then
-            local entityName = parent.group or parent.family
-            local isGroup = parent.group ~= nil
-            
-            local mounts = LM.GetMountsFromEntity(isGroup, entityName)
-            
-            if #mounts > 0 then
-                local style = LM.Options:GetOption('randomWeightStyle')
-                local mount = mounts:Random(nil, style)
-                
-                if mount and mount.mountID then
-                    LM.Debug("Summoning " .. mount.name .. " from " .. 
-                            (isGroup and "group: " or "family: ") .. entityName)
-                    C_MountJournal.SummonByID(mount.mountID)
-                    mount:OnSummon()
+        -- Use a single, consolidated OnClick handler for all mount types
+        button:SetScript("OnClick", function(self, mouseButton, isDown)
+            local parent = self:GetParent()
+
+            if mouseButton == "LeftButton" then
+                -- Left click navigation
+                if parent.group then
+                    LiteMountGroupsPanel.Groups.selectedGroup = parent.group
+                    Settings.OpenToCategory(LiteMountGroupsPanel.category.ID)
+                    LiteMountGroupsPanel:Update()
+                elseif parent.family then
+                    LiteMountFamiliesPanel.Families.selectedFamily = parent.family
+                    Settings.OpenToCategory(LiteMountFamiliesPanel.category.ID)
+                    LiteMountFamiliesPanel:Update()
+                elseif parent.mount and parent.mount.spellID then
+                    -- For regular mounts, handle link/pickup
+                    if IsModifiedClick("CHATLINK") then
+                        local mountLink = GetSpellLink(parent.mount.spellID)
+                        if mountLink then
+                            ChatEdit_InsertLink(mountLink)
+                        end
+                    else
+                        C_Spell.PickupSpell(parent.mount.spellID)
+                    end
                 end
-            else
-                LM.Debug("No usable mounts found in " .. 
-                        (isGroup and "group: " or "family: ") .. entityName)
-            end
-        end
-    end)
-end
-end
+            elseif mouseButton == "RightButton" then
+                -- Right click summoning
+                if parent.mount and parent.mount.mountID then
+                    -- Direct mount summoning
+                    LM.Debug("Directly summoning: " .. parent.mount.name)
+                    C_MountJournal.SummonByID(parent.mount.mountID)
+                    parent.mount:OnSummon()
+                elseif parent.group then
+                    -- Group summoning
+                    local groupName = parent.group
+                    LM.Debug("Group summoning for: " .. groupName)
 
+                    local mounts = LM.MountList:New()
+                    for _, mount in ipairs(LM.MountRegistry.mounts) do
+                        if mount:IsCollected() and mount:IsUsable() and
+                           mount:GetPriority() > 0 and LM.Options:IsMountInGroup(mount, groupName) then
+                            table.insert(mounts, mount)
+                        end
+                    end
+
+                    if #mounts > 0 then
+                        local style = LM.Options:GetOption('randomWeightStyle')
+                        local mount = mounts:Random(nil, style)
+                        if mount and mount.mountID then
+                            LM.Options:IncrementEntitySummonCount(true, groupName)
+                            C_MountJournal.SummonByID(mount.mountID)
+                            mount:OnSummon()
+                        end
+                    else
+                        LM.Debug("No usable mounts found in group")
+                    end
+                elseif parent.family then
+                    -- Family summoning
+                    local familyName = parent.family
+                    LM.Debug("Family summoning for: " .. familyName)
+
+                    local mounts = LM.MountList:New()
+                    for _, mount in ipairs(LM.MountRegistry.mounts) do
+                        if mount:IsCollected() and mount:IsUsable() and
+                           mount:GetPriority() > 0 and LM.Options:IsMountInFamily(mount, familyName) then
+                            table.insert(mounts, mount)
+                        end
+                    end
+
+                    if #mounts > 0 then
+                        local style = LM.Options:GetOption('randomWeightStyle')
+                        local mount = mounts:Random(nil, style)
+                        if mount and mount.mountID then
+                            LM.Options:IncrementEntitySummonCount(false, familyName)
+                            C_MountJournal.SummonByID(mount.mountID)
+                            mount:OnSummon()
+                        end
+                    else
+                        LM.Debug("No usable mounts found in family")
+                    end
+                end
+            end
+        end)
+
+        -- Set up appropriate attributes for secure button functionality
+        button:SetAttribute("type", nil)
+
+        if self.mount then
+            -- For the secure button to work correctly for individual mounts
+            self.mount:GetCastAction():SetupActionButton(button, 2)
+        else
+            -- For groups and families
+            button:SetAttribute("type", "macro")
+            button:SetAttribute("macrotext2", "")
+            button:SetAttribute("macrotext1", "")
+        end
+    end
+end
 
 function LiteMountMountButtonMixin:OnShow()
     local parent = self:GetParent()
