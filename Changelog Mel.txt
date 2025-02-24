@@ -7,6 +7,8 @@ Mounts Menu:
     The priority of groups and families can be adjusted individually or using the global priority change arrows at the top.
     Groups and families are integrated into the search menu.
     Groups and families with no eligible mounts are highlighted in red and hidden by default. They can be viewed by toggling the "Unusable" checkbox.
+    Groups and families support all filters except Sort By.
+    Groups and families can be hidden via their own filters.
 
 Groups Menu:
 
@@ -19,7 +21,4 @@ Families Menu:
     Added import/export functionality. Note that the export string is incompatible with the groups import menu.
 
 Remaining To-Dos:
-
-    Fix the Groups filter in the Mounts menu to allow users to show or hide groups of interest.
-    Add a Family (groups) filter option in the Mounts menu for the same purpose as above.
-    Ensure Groups and Families are compatible with other filters in the Mounts menu.
+    Make Groups and are compatible with Sort By in the Mounts menu.
