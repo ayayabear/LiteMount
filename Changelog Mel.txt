@@ -21,4 +21,6 @@ Families Menu:
 	Added import/export functionality. Note that the export string is incompatible with the groups import menu.
 
 Remaining To-Dos:
-	Make Groups and Families compatible with the summon count feature.
+	
+	Resolve issue with some groups showing in the Mounts menu when all the checkboxes in the types filter are unchecked.
+	Branch out the Family filter into the original filter that will be fully restored to the original state, plus a new filter named Families (Groups), where the users can select which Family groups show up in the Mounts menu - maybe all unchecked by default?
