@@ -153,21 +153,68 @@ function LM.GetMountsFromEntity(isGroup, entityName)
     return mounts
 end
 
+
 function LM.UIFilter.IsFilteredMount(mount)
     if not mount then return true end
-
+    
+    -- Check if any type checkboxes are selected
+    local anyTypeSelected = false
+    for i = 1, Enum.MountTypeMeta.NumValues do
+        if C_MountJournal.IsValidTypeFilter(i) and C_MountJournal.IsTypeChecked(i) then
+            anyTypeSelected = true
+            break
+        end
+    end
+    
     -- Special handling for groups with text search
     local filtertext = LM.UIFilter.GetSearchText()
 
     -- For groups/families
     if mount.isGroup or mount.isFamily then
+        -- Text search handling
+        if filtertext and filtertext ~= SEARCH and filtertext ~= "" then
+            local matches = strfind(mount.name:lower(), filtertext:lower(), 1, true)
+            return not matches
+        end
+
+        -- If no type checkboxes are selected, check if this group/family has any usable mounts
+        if not anyTypeSelected then
+            -- Get all mounts in this group/family
+            local mounts = LM.GetMountsFromEntity(mount.isGroup, mount.name)
+            -- Filter to only include mounts above priority 0
+            local hasUsableMounts = false
+            for _, m in ipairs(mounts) do
+                if m:GetPriority() > 0 then
+                    -- Check if this mount has a valid type that would match a checkbox if it were selected
+                    if m.mountTypeID and C_MountJournal.IsValidTypeFilter(m.mountTypeID) then
+                        hasUsableMounts = true
+                        break
+                    end
+                end
+            end
+            
+            if not hasUsableMounts then
+                LM.Debug("Filtering out " .. (mount.isGroup and "group" or "family") .. 
+                        " " .. mount.name .. " because no types are selected")
+                return true
+            end
+        end
+
         -- Checkbox filter
         if mount.isGroup and LM.UIFilter.filterList.group[mount.name] then
-            LM.Debug("Filtering out group " .. mount.name .. " due to checkbox")
+            --LM.Debug("Filtering out group " .. mount.name .. " due to checkbox")
             return true
         elseif mount.isFamily and LM.UIFilter.filterList.family[mount.name] then
-            LM.Debug("Filtering out family " .. mount.name .. " due to checkbox")
+            --LM.Debug("Filtering out family " .. mount.name .. " due to checkbox")
             return true
+        end
+
+        -- Family Groups filter specifically for families in the main Mounts panel
+        if mount.isFamily and next(LM.UIFilter.filterList.familygroup) then
+            if LM.UIFilter.filterList.familygroup[mount.name] then
+                --LM.Debug("Filtering out family " .. mount.name .. " due to family groups filter")
+                return true
+            end
         end
 
         -- Check usability first
@@ -186,13 +233,13 @@ function LM.UIFilter.IsFilteredMount(mount)
             end
 
             if LM.UIFilter.filterList.priority[entityPriority] then
-                LM.Debug("Filtering out " .. (mount.isGroup and "group" or "family") ..
-                         " " .. mount.name .. " due to priority filter")
+                --LM.Debug("Filtering out " .. (mount.isGroup and "group" or "family") ..
+                   --      " " .. mount.name .. " due to priority filter")
                 return true
             end
         end
 
-        -- Type and Source filters
+        -- Type, Source, and Flag filters
         if next(LM.UIFilter.filterList.typename) or
            next(LM.UIFilter.filterList.source) or
            next(LM.UIFilter.filterList.flag) then
@@ -240,9 +287,34 @@ function LM.UIFilter.IsFilteredMount(mount)
             end
 
             if not hasMatchingMount then
-                LM.Debug("Filtering out " .. (mount.isGroup and "group" or "family") ..
-                         " " .. mount.name .. " due to type/source/flag filters")
+                --LM.Debug("Filtering out " .. (mount.isGroup and "group" or "family") ..
+                     --    " " .. mount.name .. " due to type/source/flag filters")
                 return true
+            end
+        else
+            -- NEW CODE: Check if all type checkboxes are unchecked
+            -- This is the critical addition to filter groups/families when no type is selected
+
+            -- Get the current state of the type checkboxes
+            local anyTypeChecked = false
+            for i = 1, Enum.MountTypeMeta.NumValues do
+                if C_MountJournal.IsValidTypeFilter(i) and C_MountJournal.IsTypeChecked(i) then
+                    anyTypeChecked = true
+                    break
+                end
+            end
+
+            -- If no type checkbox is checked, check if this group/family should be shown
+            if not anyTypeChecked then
+                -- Get all mounts in this group/family
+                local mounts = LM.GetMountsFromEntity(mount.isGroup, mount.name)
+
+                -- If there are no matching mounts, filter out this group/family
+                if #mounts == 0 then
+                    --LM.Debug("Filtering out " .. (mount.isGroup and "group" or "family") ..
+                    --        " " .. mount.name .. " because no types are selected")
+                    return true
+                end
             end
         end
 
@@ -271,7 +343,7 @@ function LM.UIFilter.IsFilteredMount(mount)
     end
 
     -- Family filters
-    if mount.family and LM.UIFilter.filterList.family[mount.family] == true then
+    if mount.family and LM.UIFilter.filterList.family[mount.family] == true and not mount.isFamily then
         return true
     end
 
@@ -362,6 +434,7 @@ function LM.UIFilter.IsFilteredMount(mount)
     return true
 end
 
+
 --[[------------------------------------------------------------------------]]--
 
 LiteMountFilterClearMixin = {}
@@ -447,6 +520,15 @@ local DROPDOWNS = {
         setall = function (v) LM.UIFilter.SetAllFamilyFilters(v) end,
         menulist = function () return LM.UIFilter.GetFamilies() end,
         gettext = function (k) return LM.UIFilter.GetFamilyText(k) end,
+    },
+    ['FAMILY_GROUPS'] = {
+        value = 'FAMILY_GROUPS',
+        text = L.LM_FAMILY_GROUPS or "Families (Groups)",
+        checked = function (k) return LM.UIFilter.IsFamilyGroupChecked(k) end,
+        set = function (k, v) LM.UIFilter.SetFamilyGroupFilter(k, v) end,
+        setall = function (v) LM.UIFilter.SetAllFamilyGroupFilters(v) end,
+        menulist = function () return LM.UIFilter.GetFamilyGroups() end,
+        gettext = function (k) return LM.UIFilter.GetFamilyGroupText(k) end,
     },
     ['SOURCES'] = {
         value = 'SOURCES',
@@ -587,16 +669,21 @@ function LiteMountFilterButtonMixin:Initialize(level, menuList)
         if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
             InitDropDownSection(DROPDOWNS.FAMILY, self, level, menuList)
         end
+        
+        ---- 9. FAMILY GROUPS ----
+        if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+            InitDropDownSection(DROPDOWNS.FAMILY_GROUPS, self, level, menuList)
+        end
 
-        ---- 9. SOURCES ----
+        ---- 10. SOURCES ----
         if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
             InitDropDownSection(DROPDOWNS.SOURCES, self, level, menuList)
         end
 
-        ---- 10. PRIORITY ----
+        ---- 11. PRIORITY ----
         InitDropDownSection(DROPDOWNS.PRIORITY, self, level, menuList)
 
-        ---- 11. SORTBY ----
+        ---- 12. SORTBY ----
         InitDropDownSection(DROPDOWNS.SORTBY, self, level, menuList)
     else
         InitDropDownSection(DROPDOWNS[L_UIDROPDOWNMENU_MENU_VALUE], self, level, menuList)

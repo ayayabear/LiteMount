@@ -665,6 +665,9 @@ function LM.Options:CreateGroup(groupName, isGlobal)
     end
     
     table.wipe(self.cachedMountGroups)
+	-- Add these lines to clear caches
+    LM.MountList:ClearCache()
+    LM.UIFilter.ClearCache()
     LM.db.callbacks:Fire("OnOptionsModified")
     return true
 end
@@ -686,6 +689,9 @@ function LM.Options:DeleteGroup(groupName)
         end
         
         table.wipe(self.cachedMountGroups)
+        -- Add these lines to clear caches
+        LM.MountList:ClearCache()
+        LM.UIFilter.ClearCache()
         LM.db.callbacks:Fire("OnOptionsModified")
     end
     
@@ -717,7 +723,9 @@ function LM.Options:RenameGroup(oldName, newName)
         LM.db.profile.groupPriorities[newName] = priority
     end
     
-    table.wipe(self.cachedMountGroups)
+    LM.MountList:ClearCache()
+    LM.UIFilter.ClearCache()
+    
     LM.db.callbacks:Fire("OnOptionsModified")
     return true
 end

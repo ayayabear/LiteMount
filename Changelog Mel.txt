@@ -8,7 +8,7 @@ Mounts Menu:
 	Groups and families are integrated into the search menu.
 	Groups and families with no eligible mounts are highlighted in red and hidden by default. They can be viewed by toggling the "Unusable" checkbox.
 	Groups and families support all filters.
-	Groups and families can be hidden via their own filters.
+	Groups and families can be hidden via their own filters. There is a new filter for Families for this named Families Groups, unchecked by default.
 
 Groups Menu:
 
@@ -22,6 +22,7 @@ Families Menu:
 
 Remaining To-Dos:
 	
-	Resolve issue with some groups showing in the Mounts menu when all the checkboxes in the types filter are unchecked.
-	Branch out the Family filter into the original filter that will be fully restored to the original state, plus a new filter named Families (Groups), where the users can select which Family groups show up in the Mounts menu - maybe all unchecked by default?
+	Resolve remaining known issues:
+	- some groups and families escape Type filter
+	- Mounts menu no longer automatically refreshes after creating or deleting a group
 	Optimize code, remove redundant lines and improve maintainability.
