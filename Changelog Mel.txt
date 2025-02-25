@@ -24,5 +24,5 @@ Remaining To-Dos:
 	
 	Resolve remaining known issues:
 	- some groups and families escape Type filter
-	- after creating/renaming/deleting a group, the Mounts menu doesn't show the updates unless you initiate a search
+	- when unchecking the Groups in the filter, the mounts that they contain also get hidden
 	Optimize code, remove redundant lines and improve maintainability.

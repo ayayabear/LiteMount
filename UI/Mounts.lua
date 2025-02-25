@@ -15,7 +15,21 @@ local C_Spell = LM.C_Spell or C_Spell
 local L = LM.Localize
 
 if LM.db and LM.db.callbacks then
+    -- Save the original Fire method
     LM.db.callbacks.orig_Fire = LM.db.callbacks.Fire
+    
+    -- Replace with our own that ensures mount list updates
+    LM.db.callbacks.Fire = function(self, event, ...)
+        -- Call the original method
+        self:orig_Fire(event, ...)
+        
+        -- If this was an options modified event, update the mount list
+        if event == "OnOptionsModified" then
+            if LiteMountMountsPanel and LiteMountMountsPanel.Update then
+                LiteMountMountsPanel:Update()
+            end
+        end
+    end
 end
 
 --[[------------------------------------------------------------------------]]--
@@ -203,6 +217,7 @@ function LiteMountAllPriorityMixin:Set(v)
     end
     
     -- Fire callback to update UI
+	LM.Debug("Firing OnOptionsModified callback")
     LM.db.callbacks:Fire("OnOptionsModified")
 end
 
@@ -928,6 +943,9 @@ end
 LiteMountMountsPanelMixin = {}
 
 function LiteMountMountsPanelMixin:Update()
+    if LM.UIFilter then
+        LM.UIFilter.ClearCache()
+    end
     LM.UIFilter.ClearCache()
     self.MountScroll:Update()
     self.AllPriority:Update()
@@ -972,7 +990,7 @@ function LiteMountMountsPanelMixin:OnShow()
     LM.MountRegistry:RefreshMounts()
     LM.MountRegistry:UpdateFilterUsability()
     LM.MountRegistry.RegisterCallback(self, "OnMountSummoned", "OnRefresh")
-
+    
     -- Update the counts, Journal-only
     local counts = LM.MountRegistry:GetJournalTotals()
     self.Counts:SetText(
@@ -988,7 +1006,7 @@ function LiteMountMountsPanelMixin:OnShow()
         )
 
     self:RegisterEvent('MOUNT_JOURNAL_USABILITY_CHANGED')
-
+LM.db.RegisterCallback(self, "OnOptionsModified", "OnRefresh") 
     LiteMountOptionsPanel_OnShow(self)
 end
 

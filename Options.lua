@@ -692,20 +692,7 @@ function LM.UpdateGroupCaches()
     end
 end
 
--- IMPORTANT: Your Options.lua has duplicate implementations of these functions.
--- The ones around line 964 are overriding the ones around line 752.
--- DELETE these duplicate functions entirely:
-
--- function LM.Options:CreateGroup(g, isGlobal)
--- function LM.Options:DeleteGroup(g)
--- function LM.Options:RenameGroup(g, newG)
-
--- And keep ONLY these versions, modified to directly update the UI:
-
 function LM.Options:CreateGroup(groupName, isGlobal)
-    -- Simple debug to verify this function is being called
-    print("Creating group: " .. tostring(groupName))
-    
     if not self:IsGroupValid(groupName) or self:IsGroup(groupName) then 
         return false
     end
@@ -716,26 +703,19 @@ function LM.Options:CreateGroup(groupName, isGlobal)
         LM.db.profile.groups[groupName] = { }
     end
     
-    -- Clear the mount groups cache
     table.wipe(self.cachedMountGroups)
     
-    -- Clear the MountList cache directly
-    if LM.MountList then
-        LM.MountList:ClearCache()
-    end
+    -- Trigger an UI update via OnOptionsModified
+    LM.db.callbacks:Fire("OnOptionsModified")
     
-    -- Directly update the Mounts panel
-    if LiteMountMountsPanel and LiteMountMountsPanel.Update then
-        LiteMountMountsPanel:Update()
-    end
+    -- Force a refresh of the mount list
+    if LM.MountList.ClearCache then LM.MountList:ClearCache() end
+    if LM.UIFilter.ClearCache then LM.UIFilter.ClearCache() end
     
     return true
 end
 
 function LM.Options:DeleteGroup(groupName)
-    -- Simple debug to verify this function is being called
-    print("Deleting group: " .. tostring(groupName))
-    
     local wasDeleted = false
     if LM.db.profile.groups[groupName] then
         LM.db.profile.groups[groupName] = nil
@@ -751,27 +731,20 @@ function LM.Options:DeleteGroup(groupName)
             LM.db.profile.groupPriorities[groupName] = nil
         end
         
-        -- Clear the mount groups cache
         table.wipe(self.cachedMountGroups)
         
-        -- Clear the MountList cache directly
-        if LM.MountList then
-            LM.MountList:ClearCache()
-        end
+        -- Trigger UI update
+        LM.db.callbacks:Fire("OnOptionsModified")
         
-        -- Directly update the Mounts panel
-        if LiteMountMountsPanel and LiteMountMountsPanel.Update then
-            LiteMountMountsPanel:Update()
-        end
+        -- Force a refresh of the mount list
+        if LM.MountList.ClearCache then LM.MountList:ClearCache() end
+        if LM.UIFilter.ClearCache then LM.UIFilter.ClearCache() end
     end
     
     return wasDeleted
 end
 
 function LM.Options:RenameGroup(oldName, newName)
-    -- Simple debug to verify this function is being called
-    print("Renaming group: " .. tostring(oldName) .. " to " .. tostring(newName))
-    
     if not self:IsGroupValid(newName) or oldName == newName then
         return false
     end
@@ -796,18 +769,14 @@ function LM.Options:RenameGroup(oldName, newName)
         LM.db.profile.groupPriorities[newName] = priority
     end
     
-    -- Clear the mount groups cache
     table.wipe(self.cachedMountGroups)
     
-    -- Clear the MountList cache directly
-    if LM.MountList then
-        LM.MountList:ClearCache()
-    end
+    -- Trigger UI update
+    LM.db.callbacks:Fire("OnOptionsModified")
     
-    -- Directly update the Mounts panel
-    if LiteMountMountsPanel and LiteMountMountsPanel.Update then
-        LiteMountMountsPanel:Update()
-    end
+    -- Force a refresh of the mount list
+    if LM.MountList.ClearCache then LM.MountList:ClearCache() end
+    if LM.UIFilter.ClearCache then LM.UIFilter.ClearCache() end
     
     return true
 end
@@ -823,7 +792,6 @@ end
 function LM.Options:IsGroup(g)
     return self:IsGlobalGroup(g) or self:IsProfileGroup(g)
 end
-
 
 function LM.Options:GetMountGroups(m)
     if not self.cachedMountGroups[m.spellID] then
@@ -863,6 +831,23 @@ function LM.Options:ClearMountGroup(m, g)
     end
     self.cachedMountGroups[m.spellID] = nil
     LM.db.callbacks:Fire("OnOptionsModified")
+end
+
+function LM.UpdateUI()
+    -- Clear caches
+    LM.MountList:ClearCache()
+    LM.UIFilter.ClearCache()
+    
+    -- Update panels
+    if LiteMountMountsPanel and LiteMountMountsPanel.Update then
+        LiteMountMountsPanel:Update()
+    end
+    if LiteMountGroupsPanel and LiteMountGroupsPanel.Update then
+        LiteMountGroupsPanel:Update()
+    end
+    if LiteMountFamiliesPanel and LiteMountFamiliesPanel.Update then
+        LiteMountFamiliesPanel:Update()
+    end
 end
 
 --[[----------------------------------------------------------------------------

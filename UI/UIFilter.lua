@@ -129,6 +129,26 @@ function LM.UIFilter.GetSortKeyText(k)
     return SortKeyTexts[k] or UNKNOWN
 end
 
+function LM.UIFilter.GetFilteredMountList()
+    LM.Debug("GetFilteredMountList called")
+    
+    -- CRITICAL CHANGE: Always clear cache when getting filtered mount list
+    -- This ensures we always have fresh data after group/family operations
+    LM.UIFilter.ClearCache()
+    
+    -- Initialize if nil
+    if not LM.UIFilter.filteredMountList then
+        LM.UIFilter.filteredMountList = {}
+    end
+    
+    -- Force cache update every time
+    LM.Debug("Updating mount list cache")
+    LM.UIFilter.UpdateCache()
+    
+    LM.Debug("Filtered list has " .. #LM.UIFilter.filteredMountList .. " items")
+    return LM.UIFilter.filteredMountList
+end
+
 -- Fetch -----------------------------------------------------------------------
 
 function LM.UIFilter.UpdateCache()
@@ -141,23 +161,50 @@ function LM.UIFilter.UpdateCache()
         table.wipe(LM.UIFilter.filteredMountList)
     end
     
-    -- Get the combined list
-    local mounts = LM.MountRegistry.mounts:GetCombinedList()
+    -- Get all regular mounts
+    local mountList = {}
+    for _, mount in ipairs(LM.MountRegistry.mounts) do
+        table.insert(mountList, mount)
+    end
+    
+    -- Always add fresh groups - regardless of cache
+    for _, groupName in ipairs(LM.Options:GetGroupNames()) do
+        if groupName and groupName ~= "" then
+            local groupItem = {
+                name = groupName,
+                isGroup = true,
+            }
+            table.insert(mountList, groupItem)
+        end
+    end
+    
+    -- Add fresh families
+    if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+        for _, familyName in ipairs(LM.Options:GetFamilyNames()) do
+            if familyName and familyName ~= "" then
+                local familyItem = {
+                    name = familyName,
+                    isFamily = true,
+                }
+                table.insert(mountList, familyItem)
+            end
+        end
+    end
     
     -- Filter items
     local filteredList = LM.MountList:New()
-    for _, item in ipairs(mounts) do
+    for _, item in ipairs(mountList) do
         if not LM.UIFilter.IsFilteredMount(item) then
             table.insert(filteredList, item)
         end
     end
     
-    -- Sort the filtered list using MountList's Sort method
+    -- Sort the filtered list
     LM.Debug("Sorting filtered list by: " .. tostring(LM.UIFilter.GetSortKey()))
     filteredList:Sort(LM.UIFilter.GetSortKey())
     
-    -- Store the result (making sure it's never nil)
-    LM.UIFilter.filteredMountList = filteredList or {}
+    -- Store the result
+    LM.UIFilter.filteredMountList = filteredList
     
     LM.Debug("FilteredMountList now has " .. #LM.UIFilter.filteredMountList .. " items")
 end
@@ -180,22 +227,9 @@ function LM.UIFilter.ClearCache()
     end
 end
 
-function LM.UIFilter.GetFilteredMountList()
-    LM.Debug("GetFilteredMountList called")
-    
-    -- Initialize if nil
-    if not LM.UIFilter.filteredMountList then
-        LM.UIFilter.filteredMountList = {}
-    end
-    
-    -- Check if empty instead of using next() which can fail
-    if #LM.UIFilter.filteredMountList == 0 then
-        LM.Debug("Updating mount list cache")
-        LM.UIFilter.UpdateCache()
-    end
-    
-    LM.Debug("Filtered list has " .. #LM.UIFilter.filteredMountList .. " items")
-    return LM.UIFilter.filteredMountList
+function LM.UIFilter.InvalidateCache()
+    LM.Debug("Forcibly invalidating UIFilter cache")
+    LM.UIFilter.filteredMountList = nil
 end
 
 -- Sources ---------------------------------------------------------------------
@@ -855,4 +889,72 @@ function LM.UIFilter.IsFilteredMount(m)
     end
 
     return true
+end
+-- Add this at the end of your Options.lua file
+
+-- Hook the group operation functions to forcibly clear caches and update UI
+local originalCreateGroup = LM.Options.CreateGroup
+LM.Options.CreateGroup = function(self, groupName, isGlobal)
+    local result = originalCreateGroup(self, groupName, isGlobal)
+    
+    -- Force cache clearing
+    if LM.UIFilter then
+        LM.UIFilter.cachedFilteredList = nil
+        LM.UIFilter.cachedMountList = nil
+    end
+    
+    -- Force mount panel update
+    if LiteMountMountsPanel then
+        C_Timer.After(0.1, function()
+            if LiteMountMountsPanel.Update then
+                LiteMountMountsPanel:Update()
+            end
+        end)
+    end
+    
+    return result
+end
+
+local originalDeleteGroup = LM.Options.DeleteGroup
+LM.Options.DeleteGroup = function(self, groupName)
+    local result = originalDeleteGroup(self, groupName)
+    
+    -- Force cache clearing
+    if LM.UIFilter then
+        LM.UIFilter.cachedFilteredList = nil
+        LM.UIFilter.cachedMountList = nil
+    end
+    
+    -- Force mount panel update
+    if LiteMountMountsPanel then
+        C_Timer.After(0.1, function()
+            if LiteMountMountsPanel.Update then
+                LiteMountMountsPanel:Update()
+            end
+        end)
+    end
+    
+    return result
+end
+
+local originalRenameGroup = LM.Options.RenameGroup
+LM.Options.RenameGroup = function(self, oldName, newName)
+    local result = originalRenameGroup(self, oldName, newName)
+    
+    -- Force cache clearing
+    if LM.UIFilter then
+        LM.UIFilter.cachedFilteredList = nil
+        LM.UIFilter.cachedMountList = nil
+    end
+    
+    -- Force mount panel update
+    if LiteMountMountsPanel then
+        C_Timer.After(0.1, function()
+            if LiteMountMountsPanel.Update then
+                LiteMountMountsPanel:Update()
+            end
+        end)
+    end
+    
+    return result
 end
