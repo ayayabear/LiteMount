@@ -297,16 +297,19 @@ function LM.Mount:GetCancelAction()
 end
 
 function LM.Mount:OnSummon()
-    local n = LM.Options:IncrementSummonCount(self)
+    -- Only increment the count if we're not summoning from a group/family
+    if not LM.preventDoubleCounting then
+        local n = LM.Options:IncrementSummonCount(self)
 
-    if not LM.Options:GetOption('announceViaChat') then return end
+        if not LM.Options:GetOption('announceViaChat') then return end
 
-    if LM.Options:GetOption('randomWeightStyle') == 'Rarity' then
-        local rarity = self:GetRarity()
-        rarity = string.format(L.LM_RARITY_FORMAT, rarity or 0)
-        LM.Print(L.LM_SUMMON_CHAT_MESSAGE_RARITY, self.name, rarity, n)
-    else
-        LM.Print(L.LM_SUMMON_CHAT_MESSAGE, self.name, self:GetPriority(), n)
+        if LM.Options:GetOption('randomWeightStyle') == 'Rarity' then
+            local rarity = self:GetRarity()
+            rarity = string.format(L.LM_RARITY_FORMAT, rarity or 0)
+            LM.Print(L.LM_SUMMON_CHAT_MESSAGE_RARITY, self.name, rarity, n)
+        else
+            LM.Print(L.LM_SUMMON_CHAT_MESSAGE, self.name, self:GetPriority(), n)
+        end
     end
 end
 

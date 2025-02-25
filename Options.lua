@@ -653,7 +653,59 @@ function LM.Options:IsGroupValid(groupName)
     return true
 end
 
+if LM.db and LM.db.callbacks then
+    print("LiteMount: Registering DB callbacks handler")
+    
+    -- Register handler for OnOptionsModified
+    LM.db.callbacks:RegisterCallback("OnOptionsModified", function()
+        print("LiteMount: OnOptionsModified triggered")
+        
+        -- Clear MountList cache
+        if LM.MountList then
+            LM.MountList:ClearCache()
+        end
+        
+        -- Update the Mounts panel if it exists
+        if LiteMountMountsPanel and LiteMountMountsPanel.Update then
+            LiteMountMountsPanel:Update()
+        end
+    end)
+end
+
+-- Fix 6: Add a simple function to trigger cache update after group operations
+function LM.UpdateGroupCaches()
+    print("LiteMount: Updating group caches")
+    
+    -- Clear mount groups cache
+    if LM.Options and LM.Options.cachedMountGroups then
+        table.wipe(LM.Options.cachedMountGroups)
+    end
+    
+    -- Clear MountList cache
+    if LM.MountList then
+        LM.MountList:ClearCache()
+    end
+    
+    -- Trigger OnOptionsModified to update UI
+    if LM.db and LM.db.callbacks then
+        LM.db.callbacks:Fire("OnOptionsModified")
+    end
+end
+
+-- IMPORTANT: Your Options.lua has duplicate implementations of these functions.
+-- The ones around line 964 are overriding the ones around line 752.
+-- DELETE these duplicate functions entirely:
+
+-- function LM.Options:CreateGroup(g, isGlobal)
+-- function LM.Options:DeleteGroup(g)
+-- function LM.Options:RenameGroup(g, newG)
+
+-- And keep ONLY these versions, modified to directly update the UI:
+
 function LM.Options:CreateGroup(groupName, isGlobal)
+    -- Simple debug to verify this function is being called
+    print("Creating group: " .. tostring(groupName))
+    
     if not self:IsGroupValid(groupName) or self:IsGroup(groupName) then 
         return false
     end
@@ -664,15 +716,26 @@ function LM.Options:CreateGroup(groupName, isGlobal)
         LM.db.profile.groups[groupName] = { }
     end
     
+    -- Clear the mount groups cache
     table.wipe(self.cachedMountGroups)
-	-- Add these lines to clear caches
-    LM.MountList:ClearCache()
-    LM.UIFilter.ClearCache()
-    LM.db.callbacks:Fire("OnOptionsModified")
+    
+    -- Clear the MountList cache directly
+    if LM.MountList then
+        LM.MountList:ClearCache()
+    end
+    
+    -- Directly update the Mounts panel
+    if LiteMountMountsPanel and LiteMountMountsPanel.Update then
+        LiteMountMountsPanel:Update()
+    end
+    
     return true
 end
 
 function LM.Options:DeleteGroup(groupName)
+    -- Simple debug to verify this function is being called
+    print("Deleting group: " .. tostring(groupName))
+    
     local wasDeleted = false
     if LM.db.profile.groups[groupName] then
         LM.db.profile.groups[groupName] = nil
@@ -684,21 +747,31 @@ function LM.Options:DeleteGroup(groupName)
     
     if wasDeleted then
         -- Clear group priority
-        if LM.db.profile.groupPriorities[groupName] then
+        if LM.db.profile.groupPriorities and LM.db.profile.groupPriorities[groupName] then
             LM.db.profile.groupPriorities[groupName] = nil
         end
         
+        -- Clear the mount groups cache
         table.wipe(self.cachedMountGroups)
-        -- Add these lines to clear caches
-        LM.MountList:ClearCache()
-        LM.UIFilter.ClearCache()
-        LM.db.callbacks:Fire("OnOptionsModified")
+        
+        -- Clear the MountList cache directly
+        if LM.MountList then
+            LM.MountList:ClearCache()
+        end
+        
+        -- Directly update the Mounts panel
+        if LiteMountMountsPanel and LiteMountMountsPanel.Update then
+            LiteMountMountsPanel:Update()
+        end
     end
     
     return wasDeleted
 end
 
 function LM.Options:RenameGroup(oldName, newName)
+    -- Simple debug to verify this function is being called
+    print("Renaming group: " .. tostring(oldName) .. " to " .. tostring(newName))
+    
     if not self:IsGroupValid(newName) or oldName == newName then
         return false
     end
@@ -717,16 +790,25 @@ function LM.Options:RenameGroup(oldName, newName)
     end
     
     -- Update group priority
-    if LM.db.profile.groupPriorities[oldName] then
+    if LM.db.profile.groupPriorities and LM.db.profile.groupPriorities[oldName] then
         local priority = LM.db.profile.groupPriorities[oldName]
         LM.db.profile.groupPriorities[oldName] = nil
         LM.db.profile.groupPriorities[newName] = priority
     end
     
-    LM.MountList:ClearCache()
-    LM.UIFilter.ClearCache()
+    -- Clear the mount groups cache
+    table.wipe(self.cachedMountGroups)
     
-    LM.db.callbacks:Fire("OnOptionsModified")
+    -- Clear the MountList cache directly
+    if LM.MountList then
+        LM.MountList:ClearCache()
+    end
+    
+    -- Directly update the Mounts panel
+    if LiteMountMountsPanel and LiteMountMountsPanel.Update then
+        LiteMountMountsPanel:Update()
+    end
+    
     return true
 end
 
@@ -742,44 +824,6 @@ function LM.Options:IsGroup(g)
     return self:IsGlobalGroup(g) or self:IsProfileGroup(g)
 end
 
-function LM.Options:CreateGroup(g, isGlobal)
-    if self:IsGroup(g) or self:IsFlag(g) then return end
-    if isGlobal then
-        LM.db.global.groups[g] = { }
-    else
-        LM.db.profile.groups[g] = { }
-    end
-    table.wipe(self.cachedMountGroups)
-    LM.db.callbacks:Fire("OnOptionsModified")
-end
-
-function LM.Options:DeleteGroup(g)
-    if LM.db.profile.groups[g] then
-        LM.db.profile.groups[g] = nil
-    elseif LM.db.global.groups[g] then
-        LM.db.global.groups[g] = nil
-    end
-    table.wipe(self.cachedMountGroups)
-    LM.db.callbacks:Fire("OnOptionsModified")
-end
-
-function LM.Options:RenameGroup(g, newG)
-    if self:IsFlag(newG) then return end
-    if g == newG then return end
-
-    -- all this "tmp" stuff is to deal with f == newG, just in case
-    if LM.db.profile.groups[g] then
-        local tmp = LM.db.profile.groups[g]
-        LM.db.profile.groups[g] = nil
-        LM.db.profile.groups[newG] = tmp
-    elseif LM.db.global.groups[g] then
-        local tmp = LM.db.global.groups[g]
-        LM.db.global.groups[g] = nil
-        LM.db.global.groups[newG] = tmp
-    end
-    table.wipe(self.cachedMountGroups)
-    LM.db.callbacks:Fire("OnOptionsModified")
-end
 
 function LM.Options:GetMountGroups(m)
     if not self.cachedMountGroups[m.spellID] then

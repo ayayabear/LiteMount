@@ -17,6 +17,9 @@ local CallbackHandler = LibStub:GetLibrary("CallbackHandler-1.0", true)
 
 local IndexAttributes = { 'mountID', 'name', 'spellID', 'overrideSpellID' }
 
+-- track correctly when summoning from a group/family
+LM.preventDoubleCounting = false
+
 LM.MountRegistry = CreateFrame("Frame", nil, UIParent)
 LM.MountRegistry.callbacks = CallbackHandler:New(LM.MountRegistry)
 

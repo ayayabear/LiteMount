@@ -24,5 +24,5 @@ Remaining To-Dos:
 	
 	Resolve remaining known issues:
 	- some groups and families escape Type filter
-	- Mounts menu no longer automatically refreshes after creating or deleting a group
+	- after creating/renaming/deleting a group, the Mounts menu doesn't show the updates unless you initiate a search
 	Optimize code, remove redundant lines and improve maintainability.

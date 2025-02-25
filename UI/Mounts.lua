@@ -463,23 +463,36 @@ function LiteMountMountIconMixin:OnLoad()
                 if entityName then
                     LM.Debug("Attempting to summon from " .. (isGroup and "group: " or "family: ") .. entityName)
                     
+                    -- Check if player is mounted and dismount first
+                    if IsMounted() then
+                        LM.Debug("Player is mounted, dismounting first")
+                        Dismount()
+                        return
+                    end
+                    
+                    -- Set the prevention flag before summoning
+                    LM.preventDoubleCounting = true
+                    
                     local mounts = LM.GetMountsFromEntity(isGroup, entityName)
                     
                     if #mounts > 0 then
                         local style = LM.Options:GetOption('randomWeightStyle')
-                        local mount = mounts:Random(nil, style)
+                        local selectedMount = mounts:Random(nil, style)
                         
-                        if mount and mount.mountID then
-                            LM.Debug("Summoning " .. mount.name)
+                        if selectedMount and selectedMount.mountID then
+                            LM.Debug("Summoning " .. selectedMount.name)
                             -- First increment the entity counter
                             LM.Options:IncrementEntitySummonCount(isGroup, entityName)
                             -- Then summon mount
-                            C_MountJournal.SummonByID(mount.mountID)
-                            mount:OnSummon()
+                            C_MountJournal.SummonByID(selectedMount.mountID)
+                            selectedMount:OnSummon()
                         end
                     else
                         LM.Debug("No usable mounts found")
                     end
+                    
+                    -- Clear the prevention flag
+                    LM.preventDoubleCounting = false
                 else
                     LM.Debug("No entity name found")
                 end
@@ -719,63 +732,87 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
                         C_Spell.PickupSpell(parent.mount.spellID)
                     end
                 end
-            elseif mouseButton == "RightButton" then
-                -- Right click summoning
-                if parent.mount and parent.mount.mountID then
-                    -- Direct mount summoning
-                    LM.Debug("Directly summoning: " .. parent.mount.name)
-                    C_MountJournal.SummonByID(parent.mount.mountID)
-                    parent.mount:OnSummon()
-                elseif parent.group then
-                    -- Group summoning
-                    local groupName = parent.group
-                    LM.Debug("Group summoning for: " .. groupName)
+elseif mouseButton == "RightButton" then
+    -- Right click summoning
+    if parent.mount and parent.mount.mountID then
+        -- Direct mount summoning
+        LM.Debug("Directly summoning: " .. parent.mount.name)
+        C_MountJournal.SummonByID(parent.mount.mountID)
+        parent.mount:OnSummon()
+    elseif parent.group then
+        -- Group summoning
+        local groupName = parent.group
+        LM.Debug("Group summoning for: " .. groupName)
 
-                    local mounts = LM.MountList:New()
-                    for _, mount in ipairs(LM.MountRegistry.mounts) do
-                        if mount:IsCollected() and mount:IsUsable() and
-                           mount:GetPriority() > 0 and LM.Options:IsMountInGroup(mount, groupName) then
-                            table.insert(mounts, mount)
-                        end
-                    end
+        -- Check if player is mounted and dismount first
+        if IsMounted() then
+            Dismount()
+            return
+        end
+        
+        -- Set the prevention flag before summoning from group
+        LM.preventDoubleCounting = true
 
-                    if #mounts > 0 then
-                        local style = LM.Options:GetOption('randomWeightStyle')
-                        local mount = mounts:Random(nil, style)
-                        if mount and mount.mountID then
-                            LM.Options:IncrementEntitySummonCount(true, groupName)
-                            C_MountJournal.SummonByID(mount.mountID)
-                            mount:OnSummon()
-                        end
-                    else
-                        LM.Debug("No usable mounts found in group")
-                    end
-                elseif parent.family then
-                    -- Family summoning
-                    local familyName = parent.family
-                    LM.Debug("Family summoning for: " .. familyName)
-
-                    local mounts = LM.MountList:New()
-                    for _, mount in ipairs(LM.MountRegistry.mounts) do
-                        if mount:IsCollected() and mount:IsUsable() and
-                           mount:GetPriority() > 0 and LM.Options:IsMountInFamily(mount, familyName) then
-                            table.insert(mounts, mount)
-                        end
-                    end
-
-                    if #mounts > 0 then
-                        local style = LM.Options:GetOption('randomWeightStyle')
-                        local mount = mounts:Random(nil, style)
-                        if mount and mount.mountID then
-                            LM.Options:IncrementEntitySummonCount(false, familyName)
-                            C_MountJournal.SummonByID(mount.mountID)
-                            mount:OnSummon()
-                        end
-                    else
-                        LM.Debug("No usable mounts found in family")
-                    end
-                end
+        local mounts = LM.MountList:New()
+        for _, mount in ipairs(LM.MountRegistry.mounts) do
+            if mount:IsCollected() and mount:IsUsable() and
+               mount:GetPriority() > 0 and LM.Options:IsMountInGroup(mount, groupName) then
+                table.insert(mounts, mount)
             end
+        end
+
+        if #mounts > 0 then
+            local style = LM.Options:GetOption('randomWeightStyle')
+            local mount = mounts:Random(nil, style)
+            if mount and mount.mountID then
+                LM.Options:IncrementEntitySummonCount(true, groupName)
+                C_MountJournal.SummonByID(mount.mountID)
+                mount:OnSummon()
+            end
+        else
+            LM.Debug("No usable mounts found in group")
+        end
+
+        -- Reset the prevention flag after summoning
+        LM.preventDoubleCounting = false
+    elseif parent.family then
+        -- Family summoning
+        local familyName = parent.family
+        LM.Debug("Family summoning for: " .. familyName)
+
+        -- Check if player is mounted and dismount first
+        if IsMounted() then
+            Dismount()
+            return
+        end
+        
+        -- Set the prevention flag before summoning from family
+        LM.preventDoubleCounting = true
+
+        local mounts = LM.MountList:New()
+        for _, mount in ipairs(LM.MountRegistry.mounts) do
+            if mount:IsCollected() and mount:IsUsable() and
+               mount:GetPriority() > 0 and LM.Options:IsMountInFamily(mount, familyName) then
+                table.insert(mounts, mount)
+            end
+        end
+
+        if #mounts > 0 then
+            local style = LM.Options:GetOption('randomWeightStyle')
+            local mount = mounts:Random(nil, style)
+            if mount and mount.mountID then
+                LM.Options:IncrementEntitySummonCount(false, familyName)
+                C_MountJournal.SummonByID(mount.mountID)
+                mount:OnSummon()
+            end
+        else
+            LM.Debug("No usable mounts found in family")
+        end
+
+        -- Reset the prevention flag after summoning
+        LM.preventDoubleCounting = false
+    end
+end
         end)
 
         -- Set up appropriate attributes for secure button functionality
