@@ -130,7 +130,7 @@ function LM.UIFilter.GetSortKeyText(k)
 end
 
 function LM.UIFilter.GetFilteredMountList()
-    LM.Debug("GetFilteredMountList called")
+   -- LM.Debug("GetFilteredMountList called")
     
     -- CRITICAL CHANGE: Always clear cache when getting filtered mount list
     -- This ensures we always have fresh data after group/family operations
@@ -142,17 +142,17 @@ function LM.UIFilter.GetFilteredMountList()
     end
     
     -- Force cache update every time
-    LM.Debug("Updating mount list cache")
+  --  LM.Debug("Updating mount list cache")
     LM.UIFilter.UpdateCache()
     
-    LM.Debug("Filtered list has " .. #LM.UIFilter.filteredMountList .. " items")
+    --LM.Debug("Filtered list has " .. #LM.UIFilter.filteredMountList .. " items")
     return LM.UIFilter.filteredMountList
 end
 
 -- Fetch -----------------------------------------------------------------------
 
 function LM.UIFilter.UpdateCache()
-    LM.Debug("Starting UpdateCache")
+    --LM.Debug("Starting UpdateCache")
     
     -- Initialize if nil
     if not LM.UIFilter.filteredMountList then
@@ -200,23 +200,13 @@ function LM.UIFilter.UpdateCache()
     end
     
     -- Sort the filtered list
-    LM.Debug("Sorting filtered list by: " .. tostring(LM.UIFilter.GetSortKey()))
+    --LM.Debug("Sorting filtered list by: " .. tostring(LM.UIFilter.GetSortKey()))
     filteredList:Sort(LM.UIFilter.GetSortKey())
     
     -- Store the result
     LM.UIFilter.filteredMountList = filteredList
     
-    LM.Debug("FilteredMountList now has " .. #LM.UIFilter.filteredMountList .. " items")
-end
-
-function LM.UIFilter.DebugFilteredList()
-    LM.Debug("=== Filtered List Contents ===")
-    for i, item in ipairs(LM.UIFilter.filteredMountList) do
-        local itemType = item.isGroup and "Group" or (item.isFamily and "Family" or "Mount")
-        local typeName = item.mountTypeID and tostring(item.mountTypeID) or "none"
-        LM.Debug(i .. ": " .. itemType .. " - " .. item.name .. " - Type: " .. typeName)
-    end
-    LM.Debug("===========================")
+    --LM.Debug("FilteredMountList now has " .. #LM.UIFilter.filteredMountList .. " items")
 end
 
 function LM.UIFilter.ClearCache()
@@ -626,194 +616,198 @@ end
   Add this to IsFilteredMount in MountsFilter.lua where it handles groups/families
 ----------------------------------------------------------------------------]]--
 
-function LM.UIFilter.GetSelectedMountTypes()
-    local selectedTypes = {}
-    for i = 1, Enum.MountTypeMeta.NumValues do
-        if C_MountJournal.IsValidTypeFilter(i) and C_MountJournal.IsTypeChecked(i) then
-            selectedTypes[i] = true
-        end
-    end
-    return selectedTypes
-end
-
--- Helper function to check if a mount matches the selected types
-function LM.UIFilter.DoesMountMatchSelectedTypes(mount)
-    local selectedTypes = LM.UIFilter.GetSelectedMountTypes()
-    
-    -- If no types are selected, no mount matches
-    if not next(selectedTypes) then
-        return false
-    end
-    
-    -- Check if this mount's type matches any selected type
-    -- For problematic mounts, add extra debugging
-    local isProblematicMount = (
-        mount.name == "Sandstone Drake" or 
-        mount.name == "Cliffside Wylderdrake" or 
-        mount.name == "X-53 Touring Rocket"
-    )
-    
-    if isProblematicMount then
-        LM.Debug("Checking problematic mount: " .. mount.name)
-        LM.Debug("Mount type ID: " .. (mount.mountTypeID or "nil"))
-    end
-    
-    -- Check if the mount's type matches any selected type
-    if mount.mountTypeID and selectedTypes[mount.mountTypeID] then
-        return true
-    end
-    
-    return false
-end
-
 function LM.UIFilter.IsFilteredMount(m)
     if not m then return true end
 
-    -- Special handling for groups with text search
     local filtertext = LM.UIFilter.GetSearchText()
+    local isSearching = filtertext and filtertext ~= SEARCH and filtertext ~= ""
 
-    -- For groups/families
-    if m.isGroup or m.isFamily then
-        -- Text search handling
-        if filtertext and filtertext ~= SEARCH and filtertext ~= "" then
-            local matches = strfind(m.name:lower(), filtertext:lower(), 1, true)
-            return not matches
+    -- Check if any type filter is unchecked
+    local anyTypeUnchecked = false
+    for i = 1, Enum.MountTypeMeta.NumValues do
+        if C_MountJournal.IsValidTypeFilter(i) and not C_MountJournal.IsTypeChecked(i) then
+            anyTypeUnchecked = true
+            break
         end
+    end
 
-        -- Group/Family specific filtering
-        if m.isGroup and LM.UIFilter.filterList.group[m.name] then
+-- Groups and Families filtering
+if m.isGroup or m.isFamily then
+    -- Group/Family checkbox filters
+    if m.isGroup and LM.UIFilter.filterList.group[m.name] then
+        return true
+    elseif m.isFamily and LM.UIFilter.filterList.familygroup[m.name] then
+        return true
+    end
+
+    -- Search text filter
+    if isSearching then
+        local matchesSearch = strfind(m.name:lower(), filtertext:lower(), 1, true)
+        if not matchesSearch then
             return true
-        elseif m.isFamily then
-            -- ONLY apply familygroup filter to family groups, NEVER apply regular family filter
-            if LM.UIFilter.filterList.familygroup[m.name] then
-                return true  -- Filter out if in the familygroup filter
-            else
-                return false  -- ALWAYS show if not in familygroup filter, bypassing all other filters
-            end
         end
-
-        -- Check usability first
-        local status = LM.GetGroupOrFamilyStatus(m.isGroup, m.name)
-        if status.isRed and LM.UIFilter.filterList.other.UNUSABLE then
-            return true
-        end
-
-        -- Priority filter
-        if next(LM.UIFilter.filterList.priority) then
-            local entityPriority
-            if m.isGroup then
-                entityPriority = LM.Options:GetGroupPriority(m.name)
-            else
-                entityPriority = LM.Options:GetFamilyPriority(m.name)
-            end
-
-            if LM.UIFilter.filterList.priority[entityPriority] then
-                return true
-            end
-        end
-
-        -- Type and Source filters
-        if next(LM.UIFilter.filterList.typename) or
-           next(LM.UIFilter.filterList.source) or
-           next(LM.UIFilter.filterList.flag) then
-
-            -- Check if all type checkboxes are unchecked
-            local anyTypeChecked = false
-            for i = 1, Enum.MountTypeMeta.NumValues do
-                if C_MountJournal.IsValidTypeFilter(i) and C_MountJournal.IsTypeChecked(i) then
-                    anyTypeChecked = true
-                    break
-                end
-            end
-
-            -- If no type checkbox is checked, check if this group/family should be shown
-            if not anyTypeChecked then
-                -- Get all mounts in this group/family
-                local mounts = LM.GetMountsFromEntity(m.isGroup, m.name)
-
-                -- If there are no matching mounts, filter out this group/family
-                if #mounts == 0 then
+    end
+    
+    -- Handle Priority filter for groups/families - based on their own priority
+    if next(LM.UIFilter.filterList.priority) then
+        if m.isGroup then
+            local groupPriority = LM.Options:GetGroupPriority(m.name)
+            for _, p in ipairs(LM.UIFilter.GetPriorities()) do
+                if LM.UIFilter.filterList.priority[p] and groupPriority == p then
                     return true
                 end
             end
-
-            local mounts = LM.GetMountsFromEntity(m.isGroup, m.name)
-            local hasMatchingMount = false
-
-            for _, mount in ipairs(mounts) do
-                local passes = true
-
-                -- Check typename filters
-                if next(LM.UIFilter.filterList.typename) then
-                    local typeInfo = LM.MOUNT_TYPE_INFO[mount.mountTypeID or 0]
-                    if typeInfo and LM.UIFilter.filterList.typename[typeInfo.name] then
-                        passes = false
+        elseif m.isFamily then
+            local familyPriority = LM.Options:GetFamilyPriority(m.name)
+            for _, p in ipairs(LM.UIFilter.GetPriorities()) do
+                if LM.UIFilter.filterList.priority[p] and familyPriority == p then
+                    return true
+                end
+            end
+        end
+    end
+    
+    -- Always check if the group/family has ANY usable mounts for the player's class and faction
+    local hasAnyUsableMounts = false
+    local entityName = m.name
+    local isGroup = m.isGroup
+    
+    for _, mount in ipairs(LM.MountRegistry.mounts) do
+        local isInEntity = false
+        if isGroup then
+            isInEntity = LM.Options:IsMountInGroup(mount, entityName)
+        else
+            isInEntity = LM.Options:IsMountInFamily(mount, entityName)
+        end
+        
+        if isInEntity and mount:IsCollected() and mount:GetPriority() > 0 then
+            -- Check if mount is usable by the player's class
+            if mount:IsUsable() then
+                -- Check faction requirements
+                local isRightFaction = true
+                if mount.mountID then
+                    local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
+                    if isFactionSpecific then
+                        local playerFaction = UnitFactionGroup('player')
+                        isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
+                                         (playerFaction == 'Alliance' and faction == 1)
                     end
                 end
-
-                -- Check source filters
-                if passes and next(LM.UIFilter.filterList.source) then
-                    local source = mount.sourceType
-                    if not source or source == 0 then
-                        source = LM.UIFilter.GetNumSources()
-                    end
-                    if LM.UIFilter.filterList.source[source] then
-                        passes = false
-                    end
-                end
-
-                -- Check flag filters
-                if passes and next(LM.UIFilter.filterList.flag) then
-                    local mountFlags = mount:GetFlags()
-                    for flag, isFiltered in pairs(LM.UIFilter.filterList.flag) do
-                        if isFiltered and mountFlags[flag] then
-                            passes = false
-                            break
-                        end
-                    end
-                end
-
-                if passes then
-                    hasMatchingMount = true
+                
+                if isRightFaction then
+                    hasAnyUsableMounts = true
                     break
                 end
             end
-
-            if not hasMatchingMount then
-                return true
+        end
+    end
+    
+    -- Hide the group/family if it doesn't have ANY usable mounts,
+    -- UNLESS the "Unusable" filter is unchecked (which means show unusable items)
+    if not hasAnyUsableMounts and LM.UIFilter.filterList.other.UNUSABLE then
+        return true
+    end
+    
+    -- Check for active type filters
+    local hasTypeFilters = next(LM.UIFilter.filterList.flag) ~= nil
+    local hasTypeNameFilters = next(LM.UIFilter.filterList.typename) ~= nil
+    local hasSourceFilters = next(LM.UIFilter.filterList.source) ~= nil
+    
+    -- If any of these filters are active, we need to check the mounts in the group/family
+    if hasTypeFilters or hasTypeNameFilters or hasSourceFilters then
+        local hasMountsThatPassFilters = false
+        
+        for _, mount in ipairs(LM.MountRegistry.mounts) do
+            local isInEntity = false
+            if isGroup then
+                isInEntity = LM.Options:IsMountInGroup(mount, entityName)
+            else
+                isInEntity = LM.Options:IsMountInFamily(mount, entityName)
+            end
+            
+            if isInEntity and mount:IsCollected() and mount:IsUsable() and mount:GetPriority() > 0 then
+                -- Check faction requirements
+                local isRightFaction = true
+                if mount.mountID then
+                    local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
+                    if isFactionSpecific then
+                        local playerFaction = UnitFactionGroup('player')
+                        isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
+                                         (playerFaction == 'Alliance' and faction == 1)
+                    end
+                end
+                
+                -- Skip mounts that aren't available to the player's faction
+                if not isRightFaction then 
+                    -- Just continue to the next mount
+                else
+                    local passesAllFilters = true
+                    
+                    -- Check if mount passes type filters
+                    if hasTypeFilters then
+                        local passesTypeFilter = false
+                        local mountFlags = mount:GetFlags()
+                        for flagName in pairs(mountFlags) do
+                            if LM.FLAG[flagName] and not LM.UIFilter.filterList.flag[flagName] then
+                                passesTypeFilter = true
+                                break
+                            end
+                        end
+                        if not passesTypeFilter then
+                            passesAllFilters = false
+                        end
+                    end
+                    
+                    -- Check if mount passes typename (Type ID) filters
+                    if passesAllFilters and hasTypeNameFilters then
+                        local typeInfo = LM.MOUNT_TYPE_INFO[mount.mountTypeID or 0]
+                        if typeInfo and LM.UIFilter.filterList.typename[typeInfo.name] then
+                            passesAllFilters = false
+                        end
+                    end
+                    
+                    -- Check if mount passes source filters
+                    if passesAllFilters and hasSourceFilters then
+                        local source = mount.sourceType or LM.UIFilter.GetNumSources()
+                        if LM.UIFilter.filterList.source[source] then
+                            passesAllFilters = false
+                        end
+                    end
+                    
+                    -- If the mount passed all filters, mark the group/family as having usable mounts
+                    if passesAllFilters then
+                        hasMountsThatPassFilters = true
+                        break
+                    end
+                end
             end
         end
-
-        return false
+        
+        -- Hide the group/family if it doesn't have any mounts that pass the active filters,
+        -- UNLESS the "Unusable" filter is unchecked (which means show unusable items)
+        if not hasMountsThatPassFilters and LM.UIFilter.filterList.other.UNUSABLE then
+            return true
+        end
     end
 
-    -- Source filters
-    local source = m.sourceType
-    if not source or source == 0 then
-        source = LM.UIFilter.GetNumSources()
+    return false
+end
+
+    -- Regular mount filtering
+    -- Group filter should not hide individual mounts
+    if m.GetGroups then
+        local mountGroups = m:GetGroups()
+        if next(mountGroups) then
+            for g in pairs(mountGroups) do
+                if LM.UIFilter.filterList.group[g] then
+                    -- If group is filtered, do NOT hide the mount
+                    break
+                end
+            end
+        end
     end
 
-    if LM.UIFilter.filterList.source[source] == true then
-        return true
-    end
-
-    -- TypeName filters
-    local typeInfo = LM.MOUNT_TYPE_INFO[m.mountTypeID or 0]
-    if typeInfo and LM.UIFilter.filterList.typename[typeInfo.name] == true then
-        return true
-    end
-
-    -- Family filters - never apply to family groups
-    if not m.isFamily and m.family and LM.UIFilter.filterList.family[m.family] == true then
-        return true
-    end
-
-    -- Filter hidden mounts
-    if m.IsHidden and LM.UIFilter.filterList.other.HIDDEN and m:IsHidden() then
-        return true
-    end
-
-    -- Collection filters
+    -- Existing filters for individual mounts
     if m.IsCollected and LM.UIFilter.filterList.other.COLLECTED and m:IsCollected() then
         return true
     end
@@ -822,14 +816,28 @@ function LM.UIFilter.IsFilteredMount(m)
         return true
     end
 
-    -- Usability filter
+    if m.IsHidden and LM.UIFilter.filterList.other.HIDDEN and m:IsHidden() then
+        return true
+    end
+
     if LM.UIFilter.filterList.other.UNUSABLE then
         if m.IsHidden and m.IsFilterUsable and not m:IsHidden() and not m:IsFilterUsable() then
             return true
         end
     end
 
-    -- Priority Filters
+    local typeInfo = LM.MOUNT_TYPE_INFO[m.mountTypeID or 0]
+    if typeInfo and LM.UIFilter.filterList.typename[typeInfo.name] then
+        return true
+    end
+
+    if next(LM.UIFilter.filterList.source) then
+        local source = m.sourceType or LM.UIFilter.GetNumSources()
+        if LM.UIFilter.filterList.source[source] then
+            return true
+        end
+    end
+
     if m.GetPriority then
         for _, p in ipairs(LM.UIFilter.GetPriorities()) do
             if LM.UIFilter.filterList.priority[p] and m:GetPriority() == p then
@@ -838,23 +846,6 @@ function LM.UIFilter.IsFilteredMount(m)
         end
     end
 
-    -- Groups filter (including NONE for ungrouped mounts)
-    if m.GetGroups then
-        local mountGroups = m:GetGroups()
-        if not next(mountGroups) then
-            if LM.UIFilter.filterList.group[NONE] then return true end
-        else
-            local isFiltered = true
-            for g in pairs(mountGroups) do
-                if not LM.UIFilter.filterList.group[g] then
-                    isFiltered = false
-                end
-            end
-            if isFiltered then return true end
-        end
-    end
-
-    -- Flag filters
     if m.GetFlags and next(LM.UIFilter.filterList.flag) then
         local isFiltered = true
         for f in pairs(m:GetFlags()) do
@@ -866,95 +857,20 @@ function LM.UIFilter.IsFilteredMount(m)
         if isFiltered then return true end
     end
 
-    -- Search text from the input box
-    if not filtertext or filtertext == SEARCH or filtertext == "" then
-        return false
-    end
+    -- Search matching
+    if isSearching then
+        if filtertext == "=" and m.name then
+            local hasAura = AuraUtil.FindAuraByName(m.name, "player")
+            return hasAura == nil
+        end
 
-    if filtertext == "=" and m.name then
-        local hasAura = AuraUtil.FindAuraByName(m.name, "player")
-        return hasAura == nil
-    end
-
-    if strfind(m.name:lower(), filtertext:lower(), 1, true) then
-        return false
-    end
-
-    if m.description and searchMatch(m.description, filtertext) then
-        return false
-    end
-
-    if m.sourceText and searchMatch(stripcodes(m.sourceText), filtertext) then
-        return false
-    end
-
-    return true
-end
--- Add this at the end of your Options.lua file
-
--- Hook the group operation functions to forcibly clear caches and update UI
-local originalCreateGroup = LM.Options.CreateGroup
-LM.Options.CreateGroup = function(self, groupName, isGlobal)
-    local result = originalCreateGroup(self, groupName, isGlobal)
-    
-    -- Force cache clearing
-    if LM.UIFilter then
-        LM.UIFilter.cachedFilteredList = nil
-        LM.UIFilter.cachedMountList = nil
-    end
-    
-    -- Force mount panel update
-    if LiteMountMountsPanel then
-        C_Timer.After(0.1, function()
-            if LiteMountMountsPanel.Update then
-                LiteMountMountsPanel:Update()
+        if m.name and not strfind(m.name:lower(), filtertext:lower(), 1, true) then
+            if not (m.description and LM.UIFilter.SearchMatch(m.description, filtertext)) and
+               not (m.sourceText and LM.UIFilter.SearchMatch(LM.UIFilter.StripCodes(m.sourceText), filtertext)) then
+                return true
             end
-        end)
+        end
     end
-    
-    return result
-end
 
-local originalDeleteGroup = LM.Options.DeleteGroup
-LM.Options.DeleteGroup = function(self, groupName)
-    local result = originalDeleteGroup(self, groupName)
-    
-    -- Force cache clearing
-    if LM.UIFilter then
-        LM.UIFilter.cachedFilteredList = nil
-        LM.UIFilter.cachedMountList = nil
-    end
-    
-    -- Force mount panel update
-    if LiteMountMountsPanel then
-        C_Timer.After(0.1, function()
-            if LiteMountMountsPanel.Update then
-                LiteMountMountsPanel:Update()
-            end
-        end)
-    end
-    
-    return result
-end
-
-local originalRenameGroup = LM.Options.RenameGroup
-LM.Options.RenameGroup = function(self, oldName, newName)
-    local result = originalRenameGroup(self, oldName, newName)
-    
-    -- Force cache clearing
-    if LM.UIFilter then
-        LM.UIFilter.cachedFilteredList = nil
-        LM.UIFilter.cachedMountList = nil
-    end
-    
-    -- Force mount panel update
-    if LiteMountMountsPanel then
-        C_Timer.After(0.1, function()
-            if LiteMountMountsPanel.Update then
-                LiteMountMountsPanel:Update()
-            end
-        end)
-    end
-    
-    return result
+    return false
 end

@@ -23,6 +23,4 @@ Families Menu:
 Remaining To-Dos:
 	
 	Resolve remaining known issues:
-	- some groups and families escape Type filter
-	- when unchecking the Groups in the filter, the mounts that they contain also get hidden
-	Optimize code, remove redundant lines and improve maintainability.
+	All implementations done, all issues resolved. The only thing left is optimizing the code and remove redundant lines & improve maintainability.
