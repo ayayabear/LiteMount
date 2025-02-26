@@ -41,6 +41,19 @@ function LiteMount:Initialize()
 
     LM.MountRegistry:Initialize()
 
+    -- Initialize EntityHelpers module if available
+    if LM.EntityHelpers then
+        LM.Debug("Initializing EntityHelpers module")
+        
+        -- Create the shared import/export dialogs for groups and families
+        LM.EntityHelpers.CreateExportDialog(true)  -- Groups
+        LM.EntityHelpers.CreateExportDialog(false) -- Families
+        LM.EntityHelpers.CreateImportDialog(true)  -- Groups
+        LM.EntityHelpers.CreateImportDialog(false) -- Families
+        
+        LM.Debug("EntityHelpers dialogs created")
+    end
+
     SlashCmdList["LiteMount"] = LM.SlashCommandFunc
     _G.SLASH_LiteMount1 = "/litemount"
     _G.SLASH_LiteMount2 = "/lmt"
@@ -64,15 +77,12 @@ function LiteMount:Initialize()
 end
 
 function LiteMount:PLAYER_LOGIN()
-    print("PLAYER_LOGIN event triggered.") -- Debugging line
     self:UnregisterEvent("PLAYER_LOGIN")
 
     -- We might login already in combat.
     if InCombatLockdown() then
-        print("In combat lockdown, registering PLAYER_REGEN_ENABLED event.") -- Debugging line
         self:RegisterEvent("PLAYER_REGEN_ENABLED")
     else
-        print("Not in combat, initializing.") -- Debugging line
         self:Initialize()
     end
 end
@@ -87,4 +97,3 @@ end
 --[==[@debug@
 _G.LM = LM
 --@end-debug@]==]
-

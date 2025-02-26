@@ -2,7 +2,7 @@
 
   LiteMount/Mount.lua
 
-  Information about one mount.
+  Base mount class implementation with improved structure and performance.
 
   Copyright 2011 Mike Battersby
 
@@ -15,9 +15,24 @@ local C_MountJournal = LM.C_MountJournal or C_MountJournal
 
 local L = LM.Localize
 
--- Rarity data repackaged daily from DataForAzeroth by Sören Gade
---  https://github.com/sgade/MountsRarity
+-- Load rarity data from the library
 local MountsRarity = LibStub("MountsRarity-2.0")
+
+-- Constants for mount validation
+local MawUsableSpells = {
+    [LM.SPELL.TRAVEL_FORM] = true,
+    [LM.SPELL.MOUNT_FORM] = true,
+    [LM.SPELL.RUNNING_WILD] = true,
+    [LM.SPELL.SOULSHAPE] = true,
+    [LM.SPELL.GHOST_WOLF] = true,
+    [312762] = true,                -- Mawsworn Soulhunter
+    [344578] = true,                -- Corridor Creeper
+    [344577] = true,                -- Bound Shadehound
+}
+
+--[[----------------------------------------------------------------------------
+  Mount Class Definition
+----------------------------------------------------------------------------]]--
 
 LM.Mount = { }
 LM.Mount.__index = LM.Mount
@@ -26,12 +41,14 @@ function LM.Mount:new()
     return setmetatable({ }, self)
 end
 
+-- Factory method to create a mount of the appropriate type
 function LM.Mount:Get(className, ...)
     local class = LM[className]
 
     local m = class:Get(...)
     if not m then return end
 
+    -- Add family information for retail WoW
     if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
         for familyName, familyMounts in pairs(LM.MOUNTFAMILY) do
             if familyMounts[m.spellID] then
@@ -42,19 +59,22 @@ function LM.Mount:Get(className, ...)
         if not m.family then
             m.family = UNKNOWN
             LM.MOUNTFAMILY["Unknown"][m.spellID] = true
-            --[==[@debug@
-            LM.PrintError('No family: %s (%d)', m.name, m.spellID)
-            --@end-debug@]==]
         end
     end
 
     return m
 end
 
+--[[----------------------------------------------------------------------------
+  Mount Data Access
+----------------------------------------------------------------------------]]--
+
+-- Get user-defined flags for this mount
 function LM.Mount:GetFlags()
     return LM.Options:GetMountFlags(self)
 end
 
+-- Get the mount's family
 function LM.Mount:GetFamily()
     for family, mounts in pairs(LM.MOUNTFAMILY) do
         if mounts[self.spellID] then
@@ -64,31 +84,45 @@ function LM.Mount:GetFamily()
     return nil
 end
 
--- Add this function if it doesn't already exist somewhere
+-- Initialize the family property if not already set
 function LM.Mount:InitializeFamily()
     if not self.family then
         self.family = self:GetFamily()
     end
 end
 
+-- Get groups this mount belongs to
 function LM.Mount:GetGroups()
     return LM.Options:GetMountGroups(self)
 end
 
+-- No-op refresh method (to be overridden by subclasses)
 function LM.Mount:Refresh()
     -- Nothing in base
 end
 
-function LM.Mount:GetFamily()
-    -- Check all families to see if this mount is in any of them
-    for family, mounts in pairs(LM.MOUNTFAMILY) do
-        if mounts[self.spellID] then
-            return family
-        end
-    end
-    return nil
+-- Get the number of times this mount has been summoned
+function LM.Mount:GetSummonCount()
+    return LM.Options:GetSummonCount(self)
 end
 
+-- Get the priority of this mount
+function LM.Mount:GetPriority()
+    return LM.Options:GetPriority(self)
+end
+
+-- Get the rarity value of this mount
+function LM.Mount:GetRarity()
+    if self.mountID then
+        return MountsRarity:GetRarityByID(self.mountID) or 0
+    end
+end
+
+--[[----------------------------------------------------------------------------
+  Mount Filtering and Matching
+----------------------------------------------------------------------------]]--
+
+-- Convert a filter name to display text
 function LM.Mount.FilterToDisplay(f)
     if not f or f == "NONE" then
         return NONE
@@ -118,7 +152,6 @@ function LM.Mount.FilterToDisplay(f)
     elseif LM.Options:IsGroup(f) then
         return L.LM_GROUP .. ' : ' .. f
     elseif LM.Options:IsFlag(f) then
-        -- XXX LOCALIZE XXX
         return TYPE .. ' : ' .. L[f]
     else
         local n = C_Spell.GetSpellName(f)
@@ -127,6 +160,7 @@ function LM.Mount.FilterToDisplay(f)
     end
 end
 
+-- Check if the mount matches a single filter
 function LM.Mount:MatchesOneFilter(flags, groups, f)
     if f == "" or f == "ALL" or f == self.name then
         return true
@@ -166,6 +200,7 @@ function LM.Mount:MatchesOneFilter(flags, groups, f)
     end
 end
 
+-- Check if the mount matches all filters
 function LM.Mount:MatchesFilters(...)
     local currentFlags = self:GetFlags()
     local currentGroups = self:GetGroups()
@@ -177,6 +212,10 @@ function LM.Mount:MatchesFilters(...)
     end
     return true
 end
+
+--[[----------------------------------------------------------------------------
+  Expression Evaluation
+----------------------------------------------------------------------------]]--
 
 function LM.Mount:EvalLeaf(f, g, e)
     return self:MatchesOneFilter(f, g, e)
@@ -212,10 +251,7 @@ function LM.Mount:Eval(f, g, e)
     elseif e.op == '~' then
         return self:EvalNot(f, g, e)
     else
-    --[==[@debug@
-        DevTools_Dump(e)
-        LM.WarningAndPrint('Bad operator made it through somehow: ' .. e.op)
-    --@end-debug@]==]
+        LM.WarningAndPrint('Bad operator in expression: ' .. (e.op or "nil"))
     end
 end
 
@@ -225,17 +261,16 @@ function LM.Mount:MatchesExpression(e)
     return self:Eval(currentFlags, currentGroups, e)
 end
 
-function LM.Mount:FlagsSet(checkFlags)
-    for _,f in ipairs(checkFlags) do
-        if self.flags[f] == nil then return false end
-    end
-    return true
-end
+--[[----------------------------------------------------------------------------
+  Mount State Functions
+----------------------------------------------------------------------------]]--
 
+-- Check if the mount is currently active
 function LM.Mount:IsActive(buffTable)
     return buffTable[self.spellID]
 end
 
+-- Check if the mount is castable right now
 function LM.Mount:IsCastable()
     local info = C_Spell.GetSpellInfo(self.spellID)
     if LM.Environment:IsMovingOrFalling() then
@@ -246,34 +281,42 @@ function LM.Mount:IsCastable()
     return true
 end
 
+-- Check if the mount is cancelable
 function LM.Mount:IsCancelable()
     return true
 end
 
+-- Base usability function
 function LM.Mount:IsUsable()
     return true
 end
 
+-- Is the mount usable according to filters
 function LM.Mount:IsFilterUsable()
     return true
 end
 
+-- Is the mount mountable
 function LM.Mount:IsMountable()
     return true
 end
 
+-- Is the mount favorited
 function LM.Mount:IsFavorite()
     return false
 end
 
+-- Is the mount collected
 function LM.Mount:IsCollected()
     return true
 end
 
+-- Is the mount hidden
 function LM.Mount:IsHidden()
     return false
 end
 
+-- Check if a mount is from a specific zone
 function LM.Mount:IsFromZone(zone)
     if self.sourceText then
         zone = zone:gsub('%-', '%%-')
@@ -284,18 +327,33 @@ function LM.Mount:IsFromZone(zone)
     end
 end
 
--- These should probably not be making new identical objects all the time.
+-- Check if the mount can be used in the Maw
+function LM.Mount:MawUsable()
+    -- The True Maw Walker unlocks all mounts
+    if C_QuestLog.IsQuestFlaggedCompleted(63994) then
+        return true
+    else
+        return MawUsableSpells[self.spellID]
+    end
+end
 
+--[[----------------------------------------------------------------------------
+  Mount Actions
+----------------------------------------------------------------------------]]--
+
+-- Get the action to cast this mount
 function LM.Mount:GetCastAction()
     local spellName = C_Spell.GetSpellName(self.spellID)
     return LM.SecureAction:Spell(spellName)
 end
 
+-- Get the action to cancel this mount
 function LM.Mount:GetCancelAction()
     local spellName = C_Spell.GetSpellName(self.spellID)
     return LM.SecureAction:CancelAura(spellName)
 end
 
+-- Handle mount summoning
 function LM.Mount:OnSummon()
     -- Only increment the count if we're not summoning from a group/family
     if not LM.preventDoubleCounting then
@@ -313,45 +371,11 @@ function LM.Mount:OnSummon()
     end
 end
 
-function LM.Mount:GetSummonCount()
-    return LM.Options:GetSummonCount(self)
-end
+--[[----------------------------------------------------------------------------
+  Debug Functions
+----------------------------------------------------------------------------]]--
 
-function LM.Mount:GetPriority()
-    return LM.Options:GetPriority(self)
-end
-
-function LM.Mount:GetRarity()
-    if self.mountID then
-        return MountsRarity:GetRarityByID(self.mountID) or 0
-    end
-end
-
--- This is gross
-
-local MawUsableSpells = {
-    [LM.SPELL.TRAVEL_FORM] = true,
-    [LM.SPELL.MOUNT_FORM] = true,
-    [LM.SPELL.RUNNING_WILD] = true,
-    [LM.SPELL.SOULSHAPE] = true,
-    [LM.SPELL.GHOST_WOLF] = true,
-    [312762] = true,                -- Mawsworn Soulhunter
-    [344578] = true,                -- Corridor Creeper
-    [344577] = true,                -- Bound Shadehound
-}
-
-function LM.Mount:MawUsable()
-    -- The True Maw Walker unlocks all mounts, but the spell (353214) doesn't
-    -- seem to return true for IsPlayerSpell(). The unlock is not account-wide
-    -- so the quest is good enough (for now).
-
-    if C_QuestLog.IsQuestFlaggedCompleted(63994) then
-        return true
-    else
-        return MawUsableSpells[self.spellID]
-    end
-end
-
+-- Dump mount information for debugging
 function LM.Mount:Dump(prefix)
     prefix = prefix or ""
 

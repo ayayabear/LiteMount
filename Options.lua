@@ -2,7 +2,7 @@
 
   LiteMount/Options.lua
 
-  User-settable options.  Theses are queried by different places.
+  User-settable options.  These are queried by different places.
 
   Copyright 2011 Mike Battersby
 
@@ -91,12 +91,14 @@ local defaults = {
         groups              = { },
         instances           = { },
         summonCounts        = { },
+        groupSummonCounts   = { },  -- Added to track group summon counts
+        familySummonCounts  = { },  -- Added to track family summon counts
     },
     profile = {
         flagChanges         = { },
         mountPriorities     = { },
         groupPriorities     = { }, 
-		familyPriorities 	= { },
+        familyPriorities    = { },
         families            = { },
         buttonActions       = { ['*'] = DefaultButtonAction },
         groups              = { },
@@ -319,6 +321,7 @@ function LM.Options:Initialize()
     LiteMountDB.data = nil
     --@end-debug@]==]
 end
+
 --[[----------------------------------------------------------------------------
     Mount priorities stuff.
 ----------------------------------------------------------------------------]]--
@@ -396,96 +399,7 @@ function LM.Options:SetPriorities(mountlist, v)
     end
     
     -- Clear caches that depend on priorities
-    LM.MountList:ClearCache()
-    LM.UIFilter.ClearCache()
-    
-    -- Fire callback for UI updates
-    self.db.callbacks:Fire("OnOptionsModified")
-end
-
--- Group priority handling
-function LM.Options:GetGroupPriority(groupName)
-    if not groupName then return 0 end
-    return LM.db.profile.groupPriorities[groupName] or 0
-end
-
-function LM.Options:SetGroupPriority(groupName, priority)
-    if not groupName then return end
-    
-    -- Validate priority
-    if priority then
-        priority = math.max(self.MIN_PRIORITY, math.min(self.MAX_PRIORITY, priority))
-    end
-    
-    local oldPriority = LM.db.profile.groupPriorities[groupName]
-    if priority ~= oldPriority then
-        if not priority or priority == 0 then
-            LM.db.profile.groupPriorities[groupName] = nil
-        else
-            LM.db.profile.groupPriorities[groupName] = priority
-        end
-        
-        LM.Debug("Group priority changed: " .. groupName .. " = " .. tostring(priority))
-        
-        -- Clear caches that depend on priorities
-        LM.MountList:ClearCache()
-        LM.UIFilter.ClearCache()
-        
-        -- Fire callback for UI updates
-        LM.db.callbacks:Fire("OnOptionsModified")
-    end
-end
-
--- Family priority handling
-function LM.Options:GetFamilyPriority(familyName)
-    if not familyName then return 0 end
-    if not LM.db.profile.familyPriorities then
-        LM.db.profile.familyPriorities = {}
-    end
-    return LM.db.profile.familyPriorities[familyName] or 0
-end
-
-function LM.Options:SetFamilyPriority(familyName, priority)
-    if not familyName then return end
-    
-    -- Validate priority
-    if priority then
-        priority = math.max(self.MIN_PRIORITY, math.min(self.MAX_PRIORITY, priority))
-    end
-    
-    if not LM.db.profile.familyPriorities then
-        LM.db.profile.familyPriorities = {}
-    end
-    
-    local oldPriority = LM.db.profile.familyPriorities[familyName]
-    if priority ~= oldPriority then
-        if not priority or priority == 0 then
-            LM.db.profile.familyPriorities[familyName] = nil
-        else
-            LM.db.profile.familyPriorities[familyName] = priority
-        end
-        
-        LM.Debug("Family priority changed: " .. familyName .. " = " .. tostring(priority))
-        
-        -- Clear caches that depend on priorities
-        LM.MountList:ClearCache()
-        LM.UIFilter.ClearCache()
-        
-        -- Fire callback for UI updates
-        LM.db.callbacks:Fire("OnOptionsModified")
-        
-        -- Save families directly to ensure persistence
-        self:SaveFamiliesDirectly()
-    end
-end
-
-function LM.Options:GetFamilyNames()
-    local families = {}
-    for family in pairs(LM.MOUNTFAMILY) do
-        table.insert(families, family)
-    end
-    table.sort(families)
-    return families
+    self:InvalidateEntityCaches()
 end
 
 --[[----------------------------------------------------------------------------
@@ -653,45 +567,6 @@ function LM.Options:IsGroupValid(groupName)
     return true
 end
 
-if LM.db and LM.db.callbacks then
-    print("LiteMount: Registering DB callbacks handler")
-    
-    -- Register handler for OnOptionsModified
-    LM.db.callbacks:RegisterCallback("OnOptionsModified", function()
-        print("LiteMount: OnOptionsModified triggered")
-        
-        -- Clear MountList cache
-        if LM.MountList then
-            LM.MountList:ClearCache()
-        end
-        
-        -- Update the Mounts panel if it exists
-        if LiteMountMountsPanel and LiteMountMountsPanel.Update then
-            LiteMountMountsPanel:Update()
-        end
-    end)
-end
-
--- Fix 6: Add a simple function to trigger cache update after group operations
-function LM.UpdateGroupCaches()
-    print("LiteMount: Updating group caches")
-    
-    -- Clear mount groups cache
-    if LM.Options and LM.Options.cachedMountGroups then
-        table.wipe(LM.Options.cachedMountGroups)
-    end
-    
-    -- Clear MountList cache
-    if LM.MountList then
-        LM.MountList:ClearCache()
-    end
-    
-    -- Trigger OnOptionsModified to update UI
-    if LM.db and LM.db.callbacks then
-        LM.db.callbacks:Fire("OnOptionsModified")
-    end
-end
-
 function LM.Options:CreateGroup(groupName, isGlobal)
     if not self:IsGroupValid(groupName) or self:IsGroup(groupName) then 
         return false
@@ -703,14 +578,27 @@ function LM.Options:CreateGroup(groupName, isGlobal)
         LM.db.profile.groups[groupName] = { }
     end
     
+    -- Clear caches
     table.wipe(self.cachedMountGroups)
+    if LM.MountList then LM.MountList:ClearCache() end
     
-    -- Trigger an UI update via OnOptionsModified
+    -- Critical fix: Initialize filter for the new group
+    if LM.UIFilter and LM.UIFilter.filterList and LM.UIFilter.filterList.group then
+        -- Explicitly set the new group to false in the filter list
+        LM.UIFilter.filterList.group[groupName] = false
+        -- Force UIFilter to rebuild its cache
+        if LM.UIFilter.ClearCache then LM.UIFilter.ClearCache() end
+    end
+    
+    -- Force direct update of MountsPanel if possible
+    if LiteMountMountsPanel and LiteMountMountsPanel.Update then
+        C_Timer.After(0.1, function() 
+            LiteMountMountsPanel:Update() 
+        end)
+    end
+    
+    -- Trigger callback last
     LM.db.callbacks:Fire("OnOptionsModified")
-    
-    -- Force a refresh of the mount list
-    if LM.MountList.ClearCache then LM.MountList:ClearCache() end
-    if LM.UIFilter.ClearCache then LM.UIFilter.ClearCache() end
     
     return true
 end
@@ -731,14 +619,7 @@ function LM.Options:DeleteGroup(groupName)
             LM.db.profile.groupPriorities[groupName] = nil
         end
         
-        table.wipe(self.cachedMountGroups)
-        
-        -- Trigger UI update
-        LM.db.callbacks:Fire("OnOptionsModified")
-        
-        -- Force a refresh of the mount list
-        if LM.MountList.ClearCache then LM.MountList:ClearCache() end
-        if LM.UIFilter.ClearCache then LM.UIFilter.ClearCache() end
+        self:InvalidateEntityCaches()
     end
     
     return wasDeleted
@@ -769,15 +650,7 @@ function LM.Options:RenameGroup(oldName, newName)
         LM.db.profile.groupPriorities[newName] = priority
     end
     
-    table.wipe(self.cachedMountGroups)
-    
-    -- Trigger UI update
-    LM.db.callbacks:Fire("OnOptionsModified")
-    
-    -- Force a refresh of the mount list
-    if LM.MountList.ClearCache then LM.MountList:ClearCache() end
-    if LM.UIFilter.ClearCache then LM.UIFilter.ClearCache() end
-    
+    self:InvalidateEntityCaches()
     return true
 end
 
@@ -805,77 +678,399 @@ function LM.Options:GetMountGroups(m)
     return self.cachedMountGroups[m.spellID]
 end
 
-function LM.Options:IsMountInGroup(m, g)
-    if LM.db.profile.groups[g] then
-        return LM.db.profile.groups[g][m.spellID]
-    elseif LM.db.global.groups[g] then
-        return LM.db.global.groups[g][m.spellID]
+function LM.ForceStatusUpdate(entityName, isGroup)
+    -- Force entity status cache to expire
+    if LM.entityStatusCache then
+        -- Force all cache to expire by setting last update time to 0
+        LM.entityStatusCache.lastUpdate = 0
+        
+        -- Clear specific entity cache
+        if entityName then
+            if isGroup then
+                LM.entityStatusCache.groups[entityName] = nil
+            else
+                LM.entityStatusCache.families[entityName] = nil
+            end
+        else
+            -- Clear all if no specific entity
+            table.wipe(LM.entityStatusCache.groups)
+            table.wipe(LM.entityStatusCache.families)
+        end
     end
+    
+    -- Update UI after a short delay
+    C_Timer.After(0.1, function()
+        if LiteMountMountsPanel and LiteMountMountsPanel:IsVisible() then
+            LiteMountMountsPanel:Update()
+        end
+    end)
 end
 
+-- Modify SetMountGroup to use this function
 function LM.Options:SetMountGroup(m, g)
     if LM.db.profile.groups[g] then
         LM.db.profile.groups[g][m.spellID] = true
     elseif LM.db.global.groups[g] then
         LM.db.global.groups[g][m.spellID] = true
     end
+    
+    -- Clear mount groups cache
     self.cachedMountGroups[m.spellID] = nil
+    
+    -- Force entity status update
+    LM.ForceStatusUpdate(g, true)
+    
+    -- Fire callback as usual
     LM.db.callbacks:Fire("OnOptionsModified")
 end
 
+-- Modify ClearMountGroup to use this function
 function LM.Options:ClearMountGroup(m, g)
     if LM.db.profile.groups[g] then
         LM.db.profile.groups[g][m.spellID] = nil
     elseif LM.db.global.groups[g] then
         LM.db.global.groups[g][m.spellID] = nil
     end
+    
+    -- Clear mount groups cache
     self.cachedMountGroups[m.spellID] = nil
+    
+    -- Force entity status update
+    LM.ForceStatusUpdate(g, true)
+    
+    -- Fire callback as usual
     LM.db.callbacks:Fire("OnOptionsModified")
 end
 
-function LM.UpdateUI()
-    -- Clear caches
-    LM.MountList:ClearCache()
-    LM.UIFilter.ClearCache()
+--[[----------------------------------------------------------------------------
+    Entity Management Functions
+    (Common functions for Groups and Families)
+----------------------------------------------------------------------------]]--
+
+-- Helper function for generic entity operations
+function LM.Options:GetEntityContainer(isGroup)
+    if isGroup then
+        return isGroup and self:GetRawGroups() or self:GetFamilies()
+    else
+        return self:GetFamilies()
+    end
+end
+
+function LM.Options:GetEntityNames(isGroup) 
+    if isGroup then
+        return self:GetGroupNames()
+    else
+        return self:GetFamilyNames()
+    end
+end
+
+-- Get/Set entity priority (for groups or families)
+function LM.Options:GetEntityPriority(isGroup, entityName)
+    if not entityName then return 0 end
     
-    -- Update panels
-    if LiteMountMountsPanel and LiteMountMountsPanel.Update then
-        LiteMountMountsPanel:Update()
+    if isGroup then
+        return LM.db.profile.groupPriorities[entityName] or 0
+    else
+        if not LM.db.profile.familyPriorities then
+            LM.db.profile.familyPriorities = {}
+        end
+        return LM.db.profile.familyPriorities[entityName] or 0
     end
-    if LiteMountGroupsPanel and LiteMountGroupsPanel.Update then
-        LiteMountGroupsPanel:Update()
+end
+
+function LM.Options:SetEntityPriority(isGroup, entityName, priority)
+    if not entityName then return end
+    
+    -- Validate priority
+    if priority then
+        priority = math.max(self.MIN_PRIORITY, math.min(self.MAX_PRIORITY, priority))
     end
-    if LiteMountFamiliesPanel and LiteMountFamiliesPanel.Update then
-        LiteMountFamiliesPanel:Update()
+    
+    local container = isGroup and LM.db.profile.groupPriorities or LM.db.profile.familyPriorities
+    
+    -- Ensure container exists for families
+    if not isGroup and not LM.db.profile.familyPriorities then
+        LM.db.profile.familyPriorities = {}
+        container = LM.db.profile.familyPriorities
     end
+    
+    -- Get old priority
+    local oldPriority = container[entityName]
+    
+    -- Only update if changed
+    if priority ~= oldPriority then
+        if not priority or priority == 0 then
+            container[entityName] = nil
+        else
+            container[entityName] = priority
+        end
+        
+        LM.Debug("Entity priority changed: " .. (isGroup and "Group" or "Family") .. 
+                 " " .. entityName .. " = " .. tostring(priority))
+        
+        -- Clear caches
+        self:InvalidateEntityCaches()
+        
+        -- For families, ensure persistence
+        if not isGroup then
+            self:SaveFamiliesDirectly()
+        end
+    end
+end
+
+-- Generic function to check if a mount is in a group or family
+function LM.Options:IsMountInEntity(mount, entityName, isGroup)
+    if not mount or not mount.spellID or not entityName then
+        return false
+    end
+
+    if isGroup then
+        -- Groups code path
+        if LM.db.profile.groups[entityName] then
+            return LM.db.profile.groups[entityName][mount.spellID]
+        elseif LM.db.global.groups[entityName] then
+            return LM.db.global.groups[entityName][mount.spellID]
+        end
+    else
+        -- Families code path
+        local families = self:GetFamilies()
+        
+        -- Check for explicit user override
+        if families[entityName] and families[entityName][mount.spellID] ~= nil then
+            return families[entityName][mount.spellID]
+        end
+        
+        -- Check default family membership
+        if LM.MOUNTFAMILY[entityName] and LM.MOUNTFAMILY[entityName][mount.spellID] then
+            return true
+        end
+    end
+    
+    return false
+end
+
+-- Wrapper functions to maintain backward compatibility
+function LM.Options:IsMountInGroup(mount, groupName)
+    return self:IsMountInEntity(mount, groupName, true)
+end
+
+function LM.Options:IsMountInFamily(mount, familyName)
+    return self:IsMountInEntity(mount, familyName, false)
+end
+
+function LM.Options:GetGroupPriority(groupName)
+    return self:GetEntityPriority(true, groupName)
+end
+
+function LM.Options:SetGroupPriority(groupName, priority)
+    return self:SetEntityPriority(true, groupName, priority)
+end
+
+function LM.Options:GetFamilyPriority(familyName)
+    return self:GetEntityPriority(false, familyName)
+end
+
+function LM.Options:SetFamilyPriority(familyName, priority)
+    return self:SetEntityPriority(false, familyName, priority)
+end
+
+-- Summon count management for entities
+function LM.Options:GetEntitySummonCount(isGroup, entityName)
+    if isGroup then
+        return (LM.db.global.groupSummonCounts or {})[entityName] or 0
+    else
+        return (LM.db.global.familySummonCounts or {})[entityName] or 0
+    end
+end
+
+function LM.Options:IncrementEntitySummonCount(isGroup, entityName)
+    -- Initialize containers if needed
+    if isGroup then
+        if not LM.db.global.groupSummonCounts then
+            LM.db.global.groupSummonCounts = {}
+        end
+        LM.db.global.groupSummonCounts[entityName] = 
+            (LM.db.global.groupSummonCounts[entityName] or 0) + 1
+    else
+        if not LM.db.global.familySummonCounts then
+            LM.db.global.familySummonCounts = {}
+        end
+        LM.db.global.familySummonCounts[entityName] = 
+            (LM.db.global.familySummonCounts[entityName] or 0) + 1
+    end
+end
+
+-- Modify a mount's membership in an entity
+function LM.Options:SetMountEntityMembership(mount, entityName, isGroup, isMember)
+    if not mount or not mount.spellID or not entityName then 
+        return false 
+    end
+    
+    if isGroup then
+        -- Group membership
+        if isMember then
+            self:SetMountGroup(mount, entityName)
+        else
+            self:ClearMountGroup(mount, entityName)
+        end
+    else
+        -- Family membership
+        if isMember then
+            self:AddMountToFamily(mount, entityName)
+        else
+            self:RemoveMountFromFamily(mount, entityName)
+        end
+    end
+    
+    return true
+end
+
+-- Cache invalidation helper
+function LM.Options:InvalidateEntityCaches()
+    -- Clear all entity-related caches
+    if self.cachedMountGroups then
+        table.wipe(self.cachedMountGroups)
+    end
+    
+    -- Clear the MountList cache
+    if LM.MountList and LM.MountList.ClearCache then
+        LM.MountList:ClearCache()
+    end
+    
+    -- Clear UIFilter cache
+    if LM.UIFilter and LM.UIFilter.ClearCache then
+        LM.UIFilter.ClearCache()
+    end
+    
+    -- Fire the callback for UI updates
+    LM.db.callbacks:Fire("OnOptionsModified")
 end
 
 --[[----------------------------------------------------------------------------
     Families stuff.
 ----------------------------------------------------------------------------]]--
 
--- Add these functions to Options.lua to enable persistence of family mount customizations
+function LM.Options:GetFamilyNames()
+    local families = {}
+    for family in pairs(LM.MOUNTFAMILY) do
+        table.insert(families, family)
+    end
+    table.sort(families)
+    return families
+end
 
+-- Add a mount to a family
+function LM.Options:AddMountToFamily(mount, family)
+    -- Keep existing code
+    local families = self:GetFamilies()
+    if not families[family] then families[family] = {} end
+    families[family][mount.spellID] = true
+    
+    -- Keep direct SavedVariables update
+    local profileName = LM.db:GetCurrentProfile()
+    if LiteMountDB and LiteMountDB.profiles and 
+       LiteMountDB.profiles[profileName] then
+        if not LiteMountDB.profiles[profileName].families then
+            LiteMountDB.profiles[profileName].families = {}
+        end
+        if not LiteMountDB.profiles[profileName].families[family] then
+            LiteMountDB.profiles[profileName].families[family] = {}
+        end
+        LiteMountDB.profiles[profileName].families[family][mount.spellID] = true
+    end
+    
+    -- Force entity status update
+    LM.ForceStatusUpdate(family, false)
+    
+    -- Fire callback as usual
+    LM.db.callbacks:Fire("OnOptionsModified")
+    
+    LM.Debug("Added mount " .. mount.spellID .. " to family " .. family)
+end
+
+-- Remove a mount from a family
+function LM.Options:RemoveMountFromFamily(mount, family)
+    -- Keep existing code
+    local families = self:GetFamilies()
+    if not families[family] then families[family] = {} end
+    
+    if LM.MOUNTFAMILY[family] and LM.MOUNTFAMILY[family][mount.spellID] then
+        families[family][mount.spellID] = false
+    else
+        families[family][mount.spellID] = nil
+    end
+    
+    -- Keep direct SavedVariables update
+    local profileName = LM.db:GetCurrentProfile()
+    if LiteMountDB and LiteMountDB.profiles and 
+       LiteMountDB.profiles[profileName] then
+        if not LiteMountDB.profiles[profileName].families then
+            LiteMountDB.profiles[profileName].families = {}
+        end
+        if not LiteMountDB.profiles[profileName].families[family] then
+            LiteMountDB.profiles[profileName].families[family] = {}
+        end
+        
+        if LM.MOUNTFAMILY[family] and LM.MOUNTFAMILY[family][mount.spellID] then
+            LiteMountDB.profiles[profileName].families[family][mount.spellID] = false
+        else
+            LiteMountDB.profiles[profileName].families[family][mount.spellID] = nil
+        end
+    end
+    
+    -- Force entity status update
+    LM.ForceStatusUpdate(family, false)
+    
+    -- Fire callback as usual
+    LM.db.callbacks:Fire("OnOptionsModified")
+    
+    LM.Debug("Removed mount " .. mount.spellID .. " from family " .. family)
+end
+
+-- Reset a family to its default state
+function LM.Options:ResetFamilyToDefault(family)
+    -- Keep existing code for database update
+    local families = self:GetFamilies()
+    families[family] = nil
+    
+    -- Direct SavedVariables update
+    local profileName = LM.db:GetCurrentProfile()
+    if LiteMountDB and LiteMountDB.profiles and 
+       LiteMountDB.profiles[profileName] and
+       LiteMountDB.profiles[profileName].families then
+        LiteMountDB.profiles[profileName].families[family] = nil
+    end
+    
+    -- Force entity status update
+    LM.ForceStatusUpdate(family, false)
+    
+    -- Fire callback as usual
+    LM.db.callbacks:Fire("OnOptionsModified")
+    
+    LM.Debug("Reset family " .. family .. " to default")
+end
+
+-- Family persistence helpers
 function LM.Options:GetFamilies()
-    -- Track if we're creating a new families table or using an existing one
+    -- Ensure the families table exists
     if not LM.db.profile.families then
         LM.db.profile.families = {}
-        LM.Debug("Created new families table")
     end
     return LM.db.profile.families
 end
 
+function LM.Options:SetFamilies(families)
+    LM.db.profile.families = CopyTable(families)
+    self:SaveFamiliesDirectly()
+    self:InvalidateEntityCaches()
+end
 
-
--- Add these functions to directly manipulate the SavedVariables
 function LM.Options:SaveFamiliesDirectly()
     -- Get the current families data
     local families = self:GetFamilies()
     
     -- Save it to a global variable that will be saved to SavedVariables
     _G["LiteMountFamiliesSaved"] = CopyTable(families)
-    
-    LM.Debug("Directly saved families data")
     return true
 end
 
@@ -884,26 +1079,9 @@ function LM.Options:LoadFamiliesDirectly()
     if _G["LiteMountFamiliesSaved"] then
         -- Load the data into the profile
         LM.db.profile.families = CopyTable(_G["LiteMountFamiliesSaved"])
-        
-        local count = 0
-        for _ in pairs(_G["LiteMountFamiliesSaved"]) do
-            count = count + 1
-        end
-        LM.Debug("Loaded " .. count .. " families from direct save")
-        
         return true
     end
-    
-    LM.Debug("No directly saved families data found")
     return false
-end
-
--- Modify SetFamilies to also save directly
-function LM.Options:SetFamilies(families)
-    LM.db.profile.families = CopyTable(families)
-    _G["LiteMountFamiliesSaved"] = CopyTable(families)  -- Direct save
-    LM.Debug("Saved " .. self:CountFamilies() .. " families")
-    LM.db.callbacks:Fire("OnOptionsModified")
 end
 
 function LM.Options:CountFamilies()
@@ -916,121 +1094,165 @@ function LM.Options:CountFamilies()
     return count
 end
 
--- Family membership handling
-function LM.Options:IsMountInFamily(mount, family)
-    if not mount or not mount.spellID or not family then
-        return false
-    end
-   
-    local families = self:GetFamilies()
-    
-    -- First check if the user has explicitly set an override
-    if families[family] and families[family][mount.spellID] ~= nil then
-        local isInFamily = families[family][mount.spellID]
-        return isInFamily
-    end
-    
-    -- If no user override, check default family membership
-    if LM.MOUNTFAMILY[family] and LM.MOUNTFAMILY[family][mount.spellID] then
-        return true
-    end
-    
-    return false
-end
+--[[----------------------------------------------------------------------------
+    Import/Export Functions
+----------------------------------------------------------------------------]]--
 
--- Force save profile whenever family data changes
-function LM.Options:AddMountToFamily(mount, family)
-    -- Normal database update
-    local families = self:GetFamilies()
-    if not families[family] then families[family] = {} end
-    families[family][mount.spellID] = true
-    self:SetFamilies(families)
+-- Generic function for entity import/export
+function LM.Options:ExportEntityData(isGroup)
+    local exportType = isGroup and "groups" or "families"
     
-    -- Direct SavedVariables update for persistence
-    if not LiteMountDB then LiteMountDB = {} end
-    if not LiteMountDB.profileKeys then LiteMountDB.profileKeys = {} end
-    local profileName = LM.db:GetCurrentProfile()
-    if not LiteMountDB.profiles then LiteMountDB.profiles = {} end
-    if not LiteMountDB.profiles[profileName] then LiteMountDB.profiles[profileName] = {} end
-    if not LiteMountDB.profiles[profileName].families then LiteMountDB.profiles[profileName].families = {} end
-    if not LiteMountDB.profiles[profileName].families[family] then LiteMountDB.profiles[profileName].families[family] = {} end
-    LiteMountDB.profiles[profileName].families[family][mount.spellID] = true
+    -- Create a distinctly different format based on entity type
+    local exportData = {
+        version = 1,
+        date = date("%Y-%m-%d %H:%M:%S"),
+        type = exportType
+    }
     
-    LM.Debug("Added mount " .. mount.spellID .. " to family " .. family)
-end
-
-function LM.Options:RemoveMountFromFamily(mount, family)
-    -- Normal database update
-    local families = self:GetFamilies()
-    if not families[family] then families[family] = {} end
-    
-    -- For mounts that are default members of the family, explicitly mark as false
-    if LM.MOUNTFAMILY[family] and LM.MOUNTFAMILY[family][mount.spellID] then
-        families[family][mount.spellID] = false
+    if isGroup then
+        -- Export groups
+        local profileGroups, globalGroups = self:GetRawGroups()
+        exportData.profileGroups = {}
+        exportData.globalGroups = {}
+        
+        -- Export profile groups
+        for groupName, mounts in pairs(profileGroups) do
+            exportData.profileGroups[groupName] = {}
+            for spellID in pairs(mounts) do
+                -- Store as strings to ensure compatibility when importing
+                exportData.profileGroups[groupName][tostring(spellID)] = true
+            end
+        end
+        
+        -- Export global groups
+        for groupName, mounts in pairs(globalGroups) do
+            exportData.globalGroups[groupName] = {}
+            for spellID in pairs(mounts) do
+                exportData.globalGroups[groupName][tostring(spellID)] = true
+            end
+        end
     else
-        families[family][mount.spellID] = nil
-    end
-    self:SetFamilies(families)
-    
-    -- Direct SavedVariables update
-    if not LiteMountDB then LiteMountDB = {} end
-    if not LiteMountDB.profileKeys then LiteMountDB.profileKeys = {} end
-    local profileName = LM.db:GetCurrentProfile()
-    if not LiteMountDB.profiles then LiteMountDB.profiles = {} end
-    if not LiteMountDB.profiles[profileName] then LiteMountDB.profiles[profileName] = {} end
-    if not LiteMountDB.profiles[profileName].families then LiteMountDB.profiles[profileName].families = {} end
-    if not LiteMountDB.profiles[profileName].families[family] then LiteMountDB.profiles[profileName].families[family] = {} end
-    
-    -- Match the same logic for the direct update
-    if LM.MOUNTFAMILY[family] and LM.MOUNTFAMILY[family][mount.spellID] then
-        LiteMountDB.profiles[profileName].families[family][mount.spellID] = false
-    else
-        LiteMountDB.profiles[profileName].families[family][mount.spellID] = nil
+        -- Export families
+        local families = self:GetFamilies()
+        exportData.families = {}
+        
+        -- Only include families with user modifications
+        for familyName, mounts in pairs(families) do
+            if next(mounts) then  -- Only export non-empty families
+                exportData.families[familyName] = {}
+                for spellID, value in pairs(mounts) do
+                    exportData.families[familyName][tostring(spellID)] = value
+                end
+            end
+        end
     end
     
-    LM.Debug("Removed mount " .. mount.spellID .. " from family " .. family)
+    -- Serialize and compress
+    local serialized = LibStub("AceSerializer-3.0"):Serialize(exportData)
+    local compressed = LibStub("LibDeflate"):CompressDeflate(serialized)
+    local encoded = LibStub("LibDeflate"):EncodeForPrint(compressed)
+    
+    return encoded
 end
 
-function LM.Options:ResetFamilyToDefault(family)
-    -- Normal database update
-    local families = self:GetFamilies()
-    families[family] = nil
-    self:SetFamilies(families)
-    
-    -- Direct SavedVariables update
-    if not LiteMountDB then LiteMountDB = {} end
-    if not LiteMountDB.profileKeys then LiteMountDB.profileKeys = {} end
-    local profileName = LM.db:GetCurrentProfile()
-    if not LiteMountDB.profiles then LiteMountDB.profiles = {} end
-    if not LiteMountDB.profiles[profileName] then LiteMountDB.profiles[profileName] = {} end
-    if not LiteMountDB.profiles[profileName].families then LiteMountDB.profiles[profileName].families = {} end
-    LiteMountDB.profiles[profileName].families[family] = nil
-    
-    LM.Debug("Reset family " .. family .. " to default")
-end
-
--- Add a function to ensure family data is loaded correctly on startup
-
-function LM.Options:InitializeFamilies()
-    -- Add an OnProfileChanged callback to ensure family data is properly loaded
-    LM.db.RegisterCallback(self, "OnProfileChanged", function()
-        LM.Debug("Profile changed, reinitializing families")
-        self.cachedFamilies = nil
-    end)
-    
-    -- Ensure the families table exists in the profile
-    if not LM.db.profile.families then
-        LM.db.profile.families = {}
-        LM.Debug("Created new families table in profile")
-    else
-        LM.Debug("Loaded existing families from profile: " .. 
-                 tCount(LM.db.profile.families) .. " families")
+function LM.Options:ImportEntityData(importString, isGroup)
+    -- Decode and decompress
+    local decoded = LibStub("LibDeflate"):DecodeForPrint(importString)
+    if not decoded then
+        return false, "Failed to decode import string"
     end
     
-    -- Pre-cache family data
-    self.cachedFamilies = nil
-    local families = self:GetFamilies()
-    LM.Debug("Initialized families cache with " .. tCount(families) .. " families")
+    local decompressed = LibStub("LibDeflate"):DecompressDeflate(decoded)
+    if not decompressed then
+        return false, "Failed to decompress data"
+    end
+    
+    local success, importData = LibStub("AceSerializer-3.0"):Deserialize(decompressed)
+    if not success then
+        return false, "Failed to deserialize data"
+    end
+    
+    -- Validate the import data and ensure it's the right type
+    local expectedType = isGroup and "groups" or "families"
+    if not importData.version or not importData.type or importData.type ~= expectedType then
+        return false, "Invalid import data or wrong type"
+    end
+    
+    if isGroup then
+        -- Get current groups
+        local profileGroups, globalGroups = self:GetRawGroups()
+        
+        -- Clear existing groups
+        table.wipe(profileGroups)
+        table.wipe(globalGroups)
+        
+        -- Import profile groups
+        local profileCount = 0
+        if importData.profileGroups then
+            for groupName, mounts in pairs(importData.profileGroups) do
+                profileCount = profileCount + 1
+                profileGroups[groupName] = {}
+                for spellID in pairs(mounts) do
+                    profileGroups[groupName][tonumber(spellID)] = true
+                end
+            end
+        end
+        
+        -- Import global groups
+        local globalCount = 0
+        if importData.globalGroups then
+            for groupName, mounts in pairs(importData.globalGroups) do
+                globalCount = globalCount + 1
+                globalGroups[groupName] = {}
+                for spellID in pairs(mounts) do
+                    globalGroups[groupName][tonumber(spellID)] = true
+                end
+            end
+        end
+        
+        -- Update groups
+        self:SetRawGroups(profileGroups, globalGroups)
+        
+        return true, string.format("Successfully imported %d profile groups and %d global groups", 
+                                   profileCount, globalCount)
+    else
+        -- Apply the imported families
+        local families = self:GetFamilies()
+        
+        -- Clear existing families first
+        table.wipe(families)
+        
+        -- Import all families
+        local count = 0
+        for familyName, mounts in pairs(importData.families) do
+            count = count + 1
+            families[familyName] = {}
+            for spellID, value in pairs(mounts) do
+                families[familyName][tonumber(spellID)] = value
+            end
+        end
+        
+        self:SetFamilies(families)
+        
+        return true, "Successfully imported " .. count .. " families"
+    end
+end
+
+-- Wrapper functions to maintain backward compatibility
+function LM.Options:ExportGroups()
+    return self:ExportEntityData(true)
+end
+
+function LM.Options:ImportGroups(importString)
+    return self:ImportEntityData(importString, true)
+end
+
+function LM.Options:ExportFamilies()
+    return self:ExportEntityData(false)
+end
+
+function LM.Options:ImportFamilies(importString)
+    return self:ImportEntityData(importString, false)
 end
 
 --[[----------------------------------------------------------------------------
@@ -1158,51 +1380,17 @@ function LM.Options:IncrementSummonCount(m)
 end
 
 function LM.Options:GetSummonCount(m)
-    return LM.db.global.summonCounts[m.spellID] or 0
+    if m.isGroup then
+        return (LM.db.global.groupSummonCounts or {})[m.name] or 0
+    elseif m.isFamily then
+        return (LM.db.global.familySummonCounts or {})[m.name] or 0
+    else
+        return LM.db.global.summonCounts[m.spellID] or 0
+    end
 end
 
 function LM.Options:ResetSummonCount(m)
     LM.db.global.summonCounts[m.spellID] = nil
-end
-
-
-
-function LM.Options:GetSummonCount(item)
-    if item.isGroup then
-        return (LM.db.global.groupSummonCounts or {})[item.name] or 0
-    elseif item.isFamily then
-        return (LM.db.global.familySummonCounts or {})[item.name] or 0
-    else
-        return LM.db.global.summonCounts[item.spellID] or 0
-    end
-end
-
-function LM.Options:GetEntitySummonCount(isGroup, entityName)
-    LM.Debug("Getting count for " .. (isGroup and "group" or "family") .. ": " .. tostring(entityName))
-    if isGroup then
-        return (LM.db.global.groupSummonCounts or {})[entityName] or 0
-    else
-        return (LM.db.global.familySummonCounts or {})[entityName] or 0
-    end
-end
-
-function LM.Options:IncrementEntitySummonCount(isGroup, entityName)
-    LM.Debug("Incrementing count for " .. (isGroup and "group" or "family") .. ": " .. tostring(entityName))
-    if isGroup then
-        if not LM.db.global.groupSummonCounts then
-            LM.db.global.groupSummonCounts = {}
-        end
-        LM.db.global.groupSummonCounts[entityName] = 
-            (LM.db.global.groupSummonCounts[entityName] or 0) + 1
-        LM.Debug("New group count: " .. tostring(LM.db.global.groupSummonCounts[entityName]))
-    else
-        if not LM.db.global.familySummonCounts then
-            LM.db.global.familySummonCounts = {}
-        end
-        LM.db.global.familySummonCounts[entityName] = 
-            (LM.db.global.familySummonCounts[entityName] or 0) + 1
-        LM.Debug("New family count: " .. tostring(LM.db.global.familySummonCounts[entityName]))
-    end
 end
 
 --[[----------------------------------------------------------------------------
@@ -1215,7 +1403,6 @@ function LM.Options:ExportProfile(profileName)
     LM.db:RegisterDefaults(nil)
 
     -- Add an export time into the profile
-
     LM.db.profiles[profileName].__export__ = time()
 
     local data = LibDeflate:EncodeForPrint(
@@ -1251,7 +1438,6 @@ end
 
 
 function LM.Options:ImportProfile(profileName, str)
-
     -- I really just can't be bothered fighting with AceDB to make it safe to
     -- import the current profile, given that they don't expose enough
     -- functionality to do so in an "approved" way.
@@ -1269,76 +1455,4 @@ function LM.Options:ImportProfile(profileName, str)
     LM.db:RegisterDefaults(savedDefaults)
 
     return true
-end
-
-
-function LM.Options:ExportFamilies()
-    local families = self:GetFamilies()
-    
-    -- Create a simplified export structure
-    local exportData = {
-        version = 1,
-        date = date("%Y-%m-%d %H:%M:%S"),
-        families = {}
-    }
-    
-    -- Only include families with user modifications
-    for familyName, mounts in pairs(families) do
-        if next(mounts) then  -- Only export non-empty families
-            exportData.families[familyName] = {}
-            for spellID, value in pairs(mounts) do
-                exportData.families[familyName][tostring(spellID)] = value
-            end
-        end
-    end
-    
-    -- Serialize and compress the data
-    local serialized = LibStub("AceSerializer-3.0"):Serialize(exportData)
-    local compressed = LibStub("LibDeflate"):CompressDeflate(serialized)
-    local encoded = LibStub("LibDeflate"):EncodeForPrint(compressed)
-    
-    return encoded
-end
-
-function LM.Options:ImportFamilies(importString)
-    -- Decode and decompress the import string
-    local decoded = LibStub("LibDeflate"):DecodeForPrint(importString)
-    if not decoded then
-        return false, "Failed to decode import string"
-    end
-    
-    local decompressed = LibStub("LibDeflate"):DecompressDeflate(decoded)
-    if not decompressed then
-        return false, "Failed to decompress data"
-    end
-    
-    local success, importData = LibStub("AceSerializer-3.0"):Deserialize(decompressed)
-    if not success then
-        return false, "Failed to deserialize data"
-    end
-    
-    -- Validate the import data
-    if not importData.version or not importData.families then
-        return false, "Invalid import data format"
-    end
-    
-    -- Apply the imported families
-    local families = self:GetFamilies()
-    
-    -- Clear existing families first
-    table.wipe(families)
-    
-    -- Import all families
-    local count = 0
-    for familyName, mounts in pairs(importData.families) do
-        count = count + 1
-        families[familyName] = {}
-        for spellID, value in pairs(mounts) do
-            families[familyName][tonumber(spellID)] = value
-        end
-    end
-    
-    self:SetFamilies(families)
-    
-    return true, "Successfully imported " .. count .. " families"
 end

@@ -2,7 +2,7 @@
 
   LiteMount/UI/MountsFilter.lua
 
-  Options frame for the mount list.
+  Improved filter UI and integration for mount management.
 
   Copyright 2011 Mike Battersby
 
@@ -16,7 +16,9 @@ local LibDD = LibStub("LibUIDropDownMenu-4.0")
 
 local MENU_SPLIT_SIZE = 20
 
---[[------------------------------------------------------------------------]]--
+--[[----------------------------------------------------------------------------
+  Filter UI Mixins
+----------------------------------------------------------------------------]]--
 
 LiteMountFilterMixin = {}
 
@@ -40,9 +42,9 @@ function LiteMountFilterMixin:Attach(parent, fromPoint, frame, toPoint, xOff, yO
     self:Show()
 end
 
---[[------------------------------------------------------------------------]]--
-
-
+--[[----------------------------------------------------------------------------
+  Search Box Handling
+----------------------------------------------------------------------------]]--
 
 LiteMountSearchBoxMixin = {}
 
@@ -50,21 +52,17 @@ function LiteMountSearchBoxMixin_OnTextChanged(self)
     SearchBoxTemplate_OnTextChanged(self)
     local searchText = self:GetText()
     
-	    -- Clear cache before updating the search text
-    LM.UIFilter.ClearCache()
-    
-    -- Store search text
-    LM.UIFilter.SetSearchText(searchText)
-	
-    -- Store search text
+    -- Update the search filter
     LM.UIFilter.SetSearchText(searchText)
     
     -- Update appropriate panel based on context
     local currentPanel = LiteMountOptions.CurrentOptionsPanel
     if currentPanel then
+        -- Store search text on the panel
+        currentPanel.searchText = searchText
+        
         if currentPanel == LiteMountGroupsPanel then
             local selectedGroup = currentPanel.Groups.selectedGroup
-            currentPanel.searchText = searchText
             
             -- First update will filter both lists
             currentPanel:Update()
@@ -82,7 +80,6 @@ function LiteMountSearchBoxMixin_OnTextChanged(self)
             
         elseif currentPanel == LiteMountFamiliesPanel then
             local selectedFamily = currentPanel.Families.selectedFamily
-            currentPanel.searchText = searchText
             
             -- First update will filter both lists
             currentPanel:Update()
@@ -104,84 +101,11 @@ function LiteMountSearchBoxMixin_OnTextChanged(self)
             end
         end
     end
-    
-    -- Clear cache if search is cleared
-    if searchText == "" then
-        LM.MountList:ClearCache()
-    end
 end
 
-function LM.GetMountsFromEntity(isGroup, entityName)
-    local mounts = LM.MountList:New()
-    
-    -- When getting mounts for summoning, ignore search filter
-    local context = LiteMountOptions.CurrentOptionsPanel
-    local isSummoning = not context or (context ~= LiteMountGroupsPanel and context ~= LiteMountFamiliesPanel)
-    
-    -- Get current search state
-    local filtertext = isSummoning and "" or LM.UIFilter.GetSearchText()
-    local isSearching = filtertext and filtertext ~= SEARCH and filtertext ~= ""
-    
-    -- Check if any type filter is unchecked
-    local typeFilters = {}
-    for flagName in pairs(LM.FLAG) do
-        if LM.UIFilter.filterList.flag[flagName] then
-            typeFilters[flagName] = true
-        end
-    end
-    local hasTypeFilters = next(typeFilters) ~= nil
-
-    for _, mount in ipairs(LM.MountRegistry.mounts) do
-        local isInEntity = false
-        if isGroup then
-            isInEntity = LM.Options:IsMountInGroup(mount, entityName)
-        else
-            isInEntity = LM.Options:IsMountInFamily(mount, entityName)
-        end
-        
-        -- Only check if mount is in entity, collected, usable and has priority
-        if isInEntity and mount:IsCollected() and mount:IsUsable() and mount:GetPriority() > 0 then
-            -- Check faction requirements
-            local isRightFaction = true
-            if mount.mountID then
-                local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
-                if isFactionSpecific then
-                    local playerFaction = UnitFactionGroup('player')
-                    isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
-                                   (playerFaction == 'Alliance' and faction == 1)
-                end
-            end
-            
-            -- Check if mount matches search if searching
-            local matchesSearch = true
-            if isSearching then
-                matchesSearch = strfind(mount.name:lower(), filtertext:lower(), 1, true)
-            end
-            
-            -- Check if the mount passes type filters
-            local passesTypeFilters = true
-            if hasTypeFilters then
-                passesTypeFilters = false
-                local mountFlags = mount:GetFlags()
-                for flagName in pairs(mountFlags) do
-                    if LM.FLAG[flagName] and not typeFilters[flagName] then
-                        passesTypeFilters = true
-                        break
-                    end
-                end
-            end
-
-            -- Add mount if it passes all checks
-            if isRightFaction and (not isSearching or matchesSearch) and passesTypeFilters then
-                table.insert(mounts, mount)
-            end
-        end
-    end
-
-    return mounts
-end
-
---[[------------------------------------------------------------------------]]--
+--[[----------------------------------------------------------------------------
+  Filter Clear Button
+----------------------------------------------------------------------------]]--
 
 LiteMountFilterClearMixin = {}
 
@@ -189,7 +113,9 @@ function LiteMountFilterClearMixin:OnClick()
     LM.UIFilter.Clear()
 end
 
---[[------------------------------------------------------------------------]]--
+--[[----------------------------------------------------------------------------
+  Filter Button and Dropdown
+----------------------------------------------------------------------------]]--
 
 LiteMountFilterButtonMixin = {}
 
@@ -197,6 +123,7 @@ function LiteMountFilterButtonMixin:OnClick()
     LibDD:ToggleDropDownMenu(1, nil, self.FilterDropDown, self, 74, 15)
 end
 
+-- Dropdown menu data
 local DROPDOWNS = {
     ['COLLECTED'] = {
         value = 'COLLECTED',
@@ -285,18 +212,32 @@ local DROPDOWNS = {
         menulist = function () return LM.UIFilter.GetSources() end,
         gettext = function (k) return LM.UIFilter.GetSourceText(k) end,
     },
-    ['SORTBY'] = {
-        value = 'SORTBY',
-        text = BLUE_FONT_COLOR:WrapTextInColorCode(RAID_FRAME_SORT_LABEL),
-        checked = function (k) return LM.UIFilter.GetSortKey() == k end,
-        set = function (k) LM.UIFilter.SetSortKey(k) end,
-        menulist = function () return LM.UIFilter.GetSortKeys() end,
-        gettext = function (k) return LM.UIFilter.GetSortKeyText(k) end,
-    },
+	['SORTBY'] = {
+		value = 'SORTBY',
+		text = BLUE_FONT_COLOR:WrapTextInColorCode(RAID_FRAME_SORT_LABEL),
+		checked = function (k) 
+		local currentSortKey = LM.UIFilter.GetSortKey() or 'default'
+			return currentSortKey == k 
+		end,
+		set = function (k) 
+			LM.UIFilter.SetSortKey(k) 
+		end,
+		menulist = function () 
+			local sortKeys = LM.UIFilter.GetSortKeys()
+			-- Ensure 'default' is the first option if not already present
+			if not tContains(sortKeys, 'default') then
+				table.insert(sortKeys, 1, 'default')
+			end
+			return sortKeys 
+		end,
+		gettext = function (k) 
+		return k == 'default' and DEFAULT or LM.UIFilter.GetSortKeyText(k) 
+	end,
+	},
 }
 
+-- Initialize a dropdown section in the filter menu
 local function InitDropDownSection(template, self, level, menuList)
-
     local info = LibDD:UIDropDownMenu_CreateInfo()
     info.keepShownOnClick = true
     info.isNotRadio = true
@@ -333,16 +274,11 @@ local function InitDropDownSection(template, self, level, menuList)
                 LibDD:UIDropDownMenu_Refresh(self, nil, level)
             end
         LibDD:UIDropDownMenu_AddButton(info, level)
-
-        -- UIDropDownMenu_AddSeparator(level)
     end
 
     info.notCheckable = nil
 
-    -- The complicated stride calc is because the %s...%s entries are super
-    -- annoying and so we want to max out the number of entries in the leafs
-    -- but still need to make sure each menu is small enough.
-
+    -- Handle large menus with segmentation
     if #menuList > MENU_SPLIT_SIZE * 1.5 then
         info.notCheckable = true
         info.hasArrow = true
@@ -360,8 +296,6 @@ local function InitDropDownSection(template, self, level, menuList)
             else
                 info.text = f
             end
-            --local t = template.gettext(info.menuList[#info.menuList])
-            --info.text = format('%s...%s', f, t)
             info.value = template.value
             LibDD:UIDropDownMenu_AddButton(info, level)
         end
@@ -386,50 +320,35 @@ local function InitDropDownSection(template, self, level, menuList)
     end
 end
 
+-- Main filter dropdown initialization
 function LiteMountFilterButtonMixin:Initialize(level, menuList)
     if level == nil then return end
 
     if level == 1 then
-        ---- 1. COLLECTED ----
+        -- Collection filters
         InitDropDownSection(DROPDOWNS.COLLECTED, self, level, menuList)
-
-        ---- 2. NOT COLLECTED ----
         InitDropDownSection(DROPDOWNS.NOT_COLLECTED, self, level, menuList)
-
-        ---- 3. UNUSABLE ----
         InitDropDownSection(DROPDOWNS.UNUSABLE, self, level, menuList)
-
-        ---- 4. HIDDEN ----
         InitDropDownSection(DROPDOWNS.HIDDEN, self, level, menuList)
-
-        ---- 5. FLAG ----
+        
+        -- Type filters
         InitDropDownSection(DROPDOWNS.FLAG, self, level, menuList)
-
-        ---- 6. TYPENAME ----
         InitDropDownSection(DROPDOWNS.TYPENAME, self, level, menuList)
-		
-        ---- 7. GROUP ----
+        
+        -- Group filters
         InitDropDownSection(DROPDOWNS.GROUP, self, level, menuList)
 
-        ---- 8. FAMILY ----
+        -- Family filters (only for retail)
         if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
             InitDropDownSection(DROPDOWNS.FAMILY, self, level, menuList)
-        end
-        
-        ---- 9. FAMILY GROUPS ----
-        if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
             InitDropDownSection(DROPDOWNS.FAMILY_GROUPS, self, level, menuList)
-        end
-
-        ---- 10. SOURCES ----
-        if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
             InitDropDownSection(DROPDOWNS.SOURCES, self, level, menuList)
         end
 
-        ---- 11. PRIORITY ----
+        -- Priority filters
         InitDropDownSection(DROPDOWNS.PRIORITY, self, level, menuList)
 
-        ---- 12. SORTBY ----
+        -- Sort options
         InitDropDownSection(DROPDOWNS.SORTBY, self, level, menuList)
     else
         InitDropDownSection(DROPDOWNS[L_UIDROPDOWNMENU_MENU_VALUE], self, level, menuList)

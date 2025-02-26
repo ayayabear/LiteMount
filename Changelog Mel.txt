@@ -23,4 +23,5 @@ Families Menu:
 Remaining To-Dos:
 	
 	Resolve remaining known issues:
-	All implementations done, all issues resolved. The only thing left is optimizing the code and remove redundant lines & improve maintainability.
+	All implementations done, all issues resolved.
+	Optimized the code as much as I could.

@@ -32,14 +32,19 @@ if LM.db and LM.db.callbacks then
     end
 end
 
---[[------------------------------------------------------------------------]]--
+
+--[[----------------------------------------------------------------------------
+  Priority Management Mixins
+----------------------------------------------------------------------------]]--
 
 LiteMountPriorityMixin = {}
 
+-- Update priority display
 function LiteMountPriorityMixin:Update()
     local parent = self:GetParent()
     local value
 
+    -- Get priority value based on item type
     if parent.mount then
         value = parent.mount:GetPriority()
     elseif parent.group then
@@ -50,6 +55,7 @@ function LiteMountPriorityMixin:Update()
         value = LM.Options:GetFamilyPriority(self.family)
     end
 
+    -- Update UI elements
     if value then
         self.Minus:SetShown(value > LM.Options.MIN_PRIORITY)
         self.Plus:SetShown(value < LM.Options.MAX_PRIORITY)
@@ -61,6 +67,7 @@ function LiteMountPriorityMixin:Update()
         self.Priority:SetText('0')
     end
 
+    -- Set background color based on priority
     if LM.Options:GetOption('randomWeightStyle') == 'Priority' or value == 0 then
         local r, g, b = LM.UIFilter.GetPriorityColor(value):GetRGB()
         self.Background:SetColorTexture(r, g, b, 0.33)
@@ -69,9 +76,11 @@ function LiteMountPriorityMixin:Update()
         self.Background:SetColorTexture(r, g, b, 0.33)
     end
 end
-	
+
+-- Get priority value
 function LiteMountPriorityMixin:Get()
     local parent = self:GetParent()
+    
     if parent.mount then
         return parent.mount:GetPriority()
     elseif parent.group then
@@ -83,86 +92,41 @@ function LiteMountPriorityMixin:Get()
     end
 end
 
+-- Set priority value
 function LiteMountPriorityMixin:Set(v)
     local parent = self:GetParent()
+    
     if parent.mount then
-        LiteMountMountsPanel.MountScroll.isDirty = true
         LM.Options:SetPriority(parent.mount, v or LM.Options.DEFAULT_PRIORITY)
     elseif parent.group then
-        LiteMountMountsPanel.MountScroll.isDirty = true
         LM.Options:SetGroupPriority(parent.group, v or LM.Options.DEFAULT_PRIORITY)
     elseif parent.family then
-        LiteMountMountsPanel.MountScroll.isDirty = true
         LM.Options:SetFamilyPriority(parent.family, v or LM.Options.DEFAULT_PRIORITY)
     elseif self.family then
-        LiteMountMountsPanel.MountScroll.isDirty = true
         LM.Options:SetFamilyPriority(self.family, v or LM.Options.DEFAULT_PRIORITY)
     end
-end
-
-function LiteMountPriorityMixin:Increment()
-    local parent = self:GetParent()
-    local v
-    if parent.mount then
-        v = parent.mount:GetPriority()
-    elseif parent.group then
-        v = LM.Options:GetGroupPriority(parent.group)
-    elseif parent.family then
-        v = LM.Options:GetFamilyPriority(parent.family)
-    elseif self.family then
-        v = LM.Options:GetFamilyPriority(self.family)
-    end
-
-    if v then
-        if parent.mount then
-            LM.Options:SetPriority(parent.mount, v + 1)
-        elseif parent.group then
-            LM.Options:SetGroupPriority(parent.group, v + 1)
-        elseif parent.family then
-            LM.Options:SetFamilyPriority(parent.family, v + 1)
-        elseif self.family then
-            LM.Options:SetFamilyPriority(self.family, v + 1)
-        end
-        self:Update()
-    else
-        if parent.mount then
-            LM.Options:SetPriority(parent.mount, LM.Options.DEFAULT_PRIORITY)
-        elseif parent.group then
-            LM.Options:SetGroupPriority(parent.group, LM.Options.DEFAULT_PRIORITY)
-        elseif parent.family then
-            LM.Options:SetFamilyPriority(parent.family, LM.Options.DEFAULT_PRIORITY)
-        elseif self.family then
-            LM.Options:SetFamilyPriority(self.family, LM.Options.DEFAULT_PRIORITY)
-        end
-        self:Update()
-    end
-end
-
-function LiteMountPriorityMixin:Decrement()
-    local parent = self:GetParent()
-    local v
-    if parent.mount then
-        v = parent.mount:GetPriority() or LM.Options.DEFAULT_PRIORITY
-    elseif parent.group then
-        v = LM.Options:GetGroupPriority(parent.group) or LM.Options.DEFAULT_PRIORITY
-    elseif parent.family then
-        v = LM.Options:GetFamilyPriority(parent.family) or LM.Options.DEFAULT_PRIORITY
-    elseif self.family then
-        v = LM.Options:GetFamilyPriority(self.family) or LM.Options.DEFAULT_PRIORITY
-    end
-
-    if parent.mount then
-        LM.Options:SetPriority(parent.mount, v - 1)
-    elseif parent.group then
-        LM.Options:SetGroupPriority(parent.group, v - 1)
-    elseif parent.family then
-        LM.Options:SetFamilyPriority(parent.family, v - 1)
-    elseif self.family then
-        LM.Options:SetFamilyPriority(self.family, v - 1)
-    end
+    
     self:Update()
 end
 
+-- Increment priority
+function LiteMountPriorityMixin:Increment()
+    local v = self:Get()
+    
+    if v then
+        self:Set(v + 1)
+    else
+        self:Set(LM.Options.DEFAULT_PRIORITY)
+    end
+end
+
+-- Decrement priority
+function LiteMountPriorityMixin:Decrement()
+    local v = self:Get() or LM.Options.DEFAULT_PRIORITY
+    self:Set(v - 1)
+end
+
+-- Tooltip handling
 function LiteMountPriorityMixin:OnEnter()
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:ClearLines()
@@ -185,46 +149,46 @@ function LiteMountPriorityMixin:OnLeave()
     GameTooltip:Hide()
 end
 
---[[------------------------------------------------------------------------]]--
+--[[----------------------------------------------------------------------------
+  All Priority Control Mixin
+----------------------------------------------------------------------------]]--
 
 LiteMountAllPriorityMixin = {}
 
+-- Set priority for all shown items
 function LiteMountAllPriorityMixin:Set(v)
     -- Get all visible items
     local items = LM.UIFilter.GetFilteredMountList()
-    LiteMountMountsPanel.MountScroll.isDirty = true
-	LM.Debug("All Priority Set: Got " .. #items .. " items")
     
     -- Validate priority value
     if v then
         v = math.max(LM.Options.MIN_PRIORITY, math.min(LM.Options.MAX_PRIORITY, v))
     end
 
+    -- Set priority for each item
     for _, item in ipairs(items) do
         if item.isGroup then
             LM.db.profile.groupPriorities[item.name] = v
-			
         elseif item.isFamily then
-            LM.Debug("Setting family " .. item.name .. " to priority " .. tostring(v))			
             if not LM.db.profile.familyPriorities then
                 LM.db.profile.familyPriorities = {}
             end
             LM.db.profile.familyPriorities[item.name] = v
         else
-			LM.Debug("Setting mount " .. item.name .. " to priority " .. tostring(v))
             LM.db.profile.mountPriorities[item.spellID] = v
         end
     end
     
     -- Fire callback to update UI
-	LM.Debug("Firing OnOptionsModified callback")
     LM.db.callbacks:Fire("OnOptionsModified")
 end
 
+-- Get priority if all items have the same priority
 function LiteMountAllPriorityMixin:Get()
     local items = LM.UIFilter.GetFilteredMountList()
     local allValue
 
+    -- Check if all items have the same priority
     for _, item in ipairs(items) do
         local v
         if item.isGroup then
@@ -245,6 +209,7 @@ function LiteMountAllPriorityMixin:Get()
     return allValue
 end
 
+-- Increment all priorities
 function LiteMountAllPriorityMixin:Increment()
     local v = self:Get()
     if v then
@@ -254,6 +219,7 @@ function LiteMountAllPriorityMixin:Increment()
     end
 end
 
+-- Decrement all priorities
 function LiteMountAllPriorityMixin:Decrement()
     local v = self:Get() or LM.Options.DEFAULT_PRIORITY
     self:Set(v - 1)
@@ -327,14 +293,16 @@ end
 
 LiteMountMountIconMixin = {}
 
+-- Mount tooltip handling
 function LiteMountMountIconMixin:OnEnter()
     local parent = self:GetParent()
     local item = parent.mount or parent.group or parent.family
     if not item then return end
 
     if parent.family or (type(item) == "table" and item.isFamily) then
+        -- Family tooltip
         local familyName = type(item) == "string" and item or item.name
-        local familyStatus = LM.GetGroupOrFamilyStatus(false, familyName)
+        local familyStatus = LM.GetEntityStatus(false, familyName)
         local mounts = LM.GetMountsFromEntity(false, familyName)
         local usableMounts = 0
         local totalMounts = 0
@@ -351,6 +319,7 @@ function LiteMountMountIconMixin:OnEnter()
         local priority = LM.Options:GetFamilyPriority(familyName) or 0
         local summonCount = LM.Options:GetEntitySummonCount(false, familyName)
         
+        -- Display family tooltip
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT", 8)
         GameTooltip:AddLine(familyName, 0, 0.7, 1)
         GameTooltip:AddLine(" ")
@@ -371,8 +340,9 @@ function LiteMountMountIconMixin:OnEnter()
         GameTooltip:Show()
         
     elseif parent.group or (type(item) == "table" and item.isGroup) then
+        -- Group tooltip
         local groupName = type(item) == "string" and item or item.name
-        local groupStatus = LM.GetGroupOrFamilyStatus(true, groupName)
+        local groupStatus = LM.GetEntityStatus(true, groupName)
         local mounts = LM.GetMountsFromEntity(true, groupName)
         local usableMounts = 0
         local totalMounts = 0
@@ -389,6 +359,7 @@ function LiteMountMountIconMixin:OnEnter()
         local priority = LM.Options:GetGroupPriority(groupName) or 0
         local summonCount = LM.Options:GetEntitySummonCount(true, groupName)
         
+        -- Display group tooltip
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT", 8)
         GameTooltip:AddLine(groupName, 1, 1, 0)  -- Yellow for groups
         GameTooltip:AddLine(" ")
@@ -422,25 +393,16 @@ function LiteMountMountIconMixin:OnLeave()
     LiteMountTooltip:Hide()
 end
 
+-- Mount icon click handling
 function LiteMountMountIconMixin:OnLoad()
     self:SetAttribute("unit", "player")
     self:RegisterForClicks("AnyUp")
     self:RegisterForDrag("LeftButton")
     
-    -- Single, unified click handler - no hooking
-    self:SetScript("OnClick", function(iconSelf, button, isDown)
+    -- Click handler
+    self:SetScript("OnClick", function(iconSelf, button)
         local parent = iconSelf:GetParent()
         if not parent then return end
-        
-        -- Safe debug message that won't cause errors with nil values
-        local itemType = parent.mount and "mount" or 
-                        parent.group and "group" or 
-                        parent.family and "family" or "unknown"
-        local itemName = parent.mount and parent.mount.name or 
-                        parent.group or 
-                        parent.family or "unknown"
-        
-        LM.Debug("Icon clicked: " .. button .. " on " .. itemType .. " " .. itemName)
         
         -- Handle left-click navigation
         if button == "LeftButton" then
@@ -468,7 +430,6 @@ function LiteMountMountIconMixin:OnLoad()
             -- Handle mount summoning
             if parent.mount and parent.mount.mountID then
                 -- Direct mount summoning
-                LM.Debug("Direct mount summoning: " .. parent.mount.name)
                 C_MountJournal.SummonByID(parent.mount.mountID)
                 parent.mount:OnSummon()
             elseif parent.group or parent.family then
@@ -476,11 +437,8 @@ function LiteMountMountIconMixin:OnLoad()
                 local isGroup = parent.group ~= nil
                 
                 if entityName then
-                    LM.Debug("Attempting to summon from " .. (isGroup and "group: " or "family: ") .. entityName)
-                    
                     -- Check if player is mounted and dismount first
                     if IsMounted() then
-                        LM.Debug("Player is mounted, dismounting first")
                         Dismount()
                         return
                     end
@@ -488,28 +446,11 @@ function LiteMountMountIconMixin:OnLoad()
                     -- Set the prevention flag before summoning
                     LM.preventDoubleCounting = true
                     
-                    local mounts = LM.GetMountsFromEntity(isGroup, entityName)
-                    
-                    if #mounts > 0 then
-                        local style = LM.Options:GetOption('randomWeightStyle')
-                        local selectedMount = mounts:Random(nil, style)
-                        
-                        if selectedMount and selectedMount.mountID then
-                            LM.Debug("Summoning " .. selectedMount.name)
-                            -- First increment the entity counter
-                            LM.Options:IncrementEntitySummonCount(isGroup, entityName)
-                            -- Then summon mount
-                            C_MountJournal.SummonByID(selectedMount.mountID)
-                            selectedMount:OnSummon()
-                        end
-                    else
-                        LM.Debug("No usable mounts found")
-                    end
+                    -- Using the unified function
+                    LM.DirectlySummonRandomMountFromEntity(isGroup, entityName)
                     
                     -- Clear the prevention flag
                     LM.preventDoubleCounting = false
-                else
-                    LM.Debug("No entity name found")
                 end
             end
         end
@@ -523,11 +464,13 @@ function LiteMountMountIconMixin:OnDragStart()
     end
 end
 
-
 --[[------------------------------------------------------------------------]]--
 
 LiteMountMountButtonMixin = {}
 
+LiteMountMountButtonMixin = {}
+
+-- Continuation of LiteMountMountButtonMixin:Update function
 function LiteMountMountButtonMixin:Update(bitFlags, item)
     -- Clear all references first
     self.mount = nil
@@ -535,9 +478,10 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
     self.family = nil
 
     if item.isFamily then
-        -- This is a family
+        -- Handle family
         self.family = item.name
 
+        -- Setup icon
         if self.Icon and self.Icon:GetNormalTexture() then
             self.Icon:GetNormalTexture():SetDesaturated(false)
             self.Icon:GetNormalTexture():SetVertexColor(1, 1, 1)
@@ -556,8 +500,8 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
             self.Name:SetTextColor(0, 0.7, 1)  -- Blue color for families
         end
 
-        -- Get family status AND check mounts for this search
-        local familyStatus = LM.GetGroupOrFamilyStatus(false, item.name)
+        -- Get family status
+        local familyStatus = LM.GetEntityStatus(false, item.name)
         local mounts = LM.GetMountsFromEntity(false, item.name)
         local hasMatchingMounts = #mounts > 0
 
@@ -570,14 +514,14 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
             end
             self.Name:SetFontObject("GameFontNormalLarge")
             self.Name:SetTextColor(0, 0.7, 1)  -- Blue color for families
-        elseif not hasCollectedMounts then
-            -- Gray out if no collected mounts in family
+        elseif familyStatus.shouldBeGray then
+            -- Gray out if all mounts have priority 0 or none collected
             if self.Icon and self.Icon:GetNormalTexture() then
                 self.Icon:GetNormalTexture():SetDesaturated(true)
                 self.Icon:GetNormalTexture():SetVertexColor(1, 1, 1)
             end
             self.Name:SetFontObject("GameFontDisableLarge")
-        elseif not hasUsableMounts then
+        elseif familyStatus.isRed then
             -- Red if has mounts but none are usable
             if self.Icon and self.Icon:GetNormalTexture() then
                 self.Icon:GetNormalTexture():SetDesaturated(true)
@@ -602,9 +546,10 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
             self.Priority:Show()
         end
     elseif item.isGroup then
-        -- This is a group
+        -- Handle group
         self.group = item.name
 
+        -- Setup icon
         if self.Icon and self.Icon:GetNormalTexture() then
             self.Icon:GetNormalTexture():SetDesaturated(false)
             self.Icon:GetNormalTexture():SetVertexColor(1, 1, 1)
@@ -623,9 +568,10 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
             self.Name:SetTextColor(1, 1, 0)  -- Yellow color for groups
         end
 
-        -- For groups
-        local groupStatus = LM.GetGroupOrFamilyStatus(true, item.name)
+        -- Get group status
+        local groupStatus = LM.GetEntityStatus(true, item.name)
 
+        -- Apply visual state based on content and search
         if groupStatus.shouldBeGray then
             -- Gray out if all mounts are priority 0
             if self.Icon and self.Icon:GetNormalTexture() then
@@ -666,13 +612,14 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
             self.Priority:Show()
         end
     else
-        -- This is a regular mount
+        -- Handle regular mount
         self.mount = item
         self.Icon:SetNormalTexture(item.icon)
         self.Name:SetText(item.name)
         self.Name:SetFontObject("GameFontNormal")
         self.Name:SetTextColor(1, 1, 1)  -- Reset color
 
+        -- Show summon count
         local count = item:GetSummonCount()
         if count > 0 then
             self.Icon.Count:SetText(count)
@@ -681,6 +628,7 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
             self.Icon.Count:Hide()
         end
 
+        -- Set up action button if not in combat
         if not InCombatLockdown() then
             item:GetCastAction():SetupActionButton(self.Icon, 2)
         end
@@ -692,7 +640,8 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
             i = i + 1
         end
 
-        local flagTexts = { }
+        -- Update flags display
+        local flagTexts = {}
         for _, flag in ipairs(LM.Options:GetFlags()) do
             if item.flags[flag] then
                 table.insert(flagTexts, L[flag])
@@ -719,117 +668,10 @@ function LiteMountMountButtonMixin:Update(bitFlags, item)
         self.Priority:Update()
     end
 
+    -- Setup secure button functionality after updating UI
     if not InCombatLockdown() then
         local button = self.Icon
-
-        -- Use a single, consolidated OnClick handler for all mount types
-        button:SetScript("OnClick", function(self, mouseButton, isDown)
-            local parent = self:GetParent()
-
-            if mouseButton == "LeftButton" then
-                -- Left click navigation
-                if parent.group then
-                    LiteMountGroupsPanel.Groups.selectedGroup = parent.group
-                    Settings.OpenToCategory(LiteMountGroupsPanel.category.ID)
-                    LiteMountGroupsPanel:Update()
-                elseif parent.family then
-                    LiteMountFamiliesPanel.Families.selectedFamily = parent.family
-                    Settings.OpenToCategory(LiteMountFamiliesPanel.category.ID)
-                    LiteMountFamiliesPanel:Update()
-                elseif parent.mount and parent.mount.spellID then
-                    -- For regular mounts, handle link/pickup
-                    if IsModifiedClick("CHATLINK") then
-                        local mountLink = GetSpellLink(parent.mount.spellID)
-                        if mountLink then
-                            ChatEdit_InsertLink(mountLink)
-                        end
-                    else
-                        C_Spell.PickupSpell(parent.mount.spellID)
-                    end
-                end
-elseif mouseButton == "RightButton" then
-    -- Right click summoning
-    if parent.mount and parent.mount.mountID then
-        -- Direct mount summoning
-        LM.Debug("Directly summoning: " .. parent.mount.name)
-        C_MountJournal.SummonByID(parent.mount.mountID)
-        parent.mount:OnSummon()
-    elseif parent.group then
-        -- Group summoning
-        local groupName = parent.group
-        LM.Debug("Group summoning for: " .. groupName)
-
-        -- Check if player is mounted and dismount first
-        if IsMounted() then
-            Dismount()
-            return
-        end
         
-        -- Set the prevention flag before summoning from group
-        LM.preventDoubleCounting = true
-
-        local mounts = LM.MountList:New()
-        for _, mount in ipairs(LM.MountRegistry.mounts) do
-            if mount:IsCollected() and mount:IsUsable() and
-               mount:GetPriority() > 0 and LM.Options:IsMountInGroup(mount, groupName) then
-                table.insert(mounts, mount)
-            end
-        end
-
-        if #mounts > 0 then
-            local style = LM.Options:GetOption('randomWeightStyle')
-            local mount = mounts:Random(nil, style)
-            if mount and mount.mountID then
-                LM.Options:IncrementEntitySummonCount(true, groupName)
-                C_MountJournal.SummonByID(mount.mountID)
-                mount:OnSummon()
-            end
-        else
-            LM.Debug("No usable mounts found in group")
-        end
-
-        -- Reset the prevention flag after summoning
-        LM.preventDoubleCounting = false
-    elseif parent.family then
-        -- Family summoning
-        local familyName = parent.family
-        LM.Debug("Family summoning for: " .. familyName)
-
-        -- Check if player is mounted and dismount first
-        if IsMounted() then
-            Dismount()
-            return
-        end
-        
-        -- Set the prevention flag before summoning from family
-        LM.preventDoubleCounting = true
-
-        local mounts = LM.MountList:New()
-        for _, mount in ipairs(LM.MountRegistry.mounts) do
-            if mount:IsCollected() and mount:IsUsable() and
-               mount:GetPriority() > 0 and LM.Options:IsMountInFamily(mount, familyName) then
-                table.insert(mounts, mount)
-            end
-        end
-
-        if #mounts > 0 then
-            local style = LM.Options:GetOption('randomWeightStyle')
-            local mount = mounts:Random(nil, style)
-            if mount and mount.mountID then
-                LM.Options:IncrementEntitySummonCount(false, familyName)
-                C_MountJournal.SummonByID(mount.mountID)
-                mount:OnSummon()
-            end
-        else
-            LM.Debug("No usable mounts found in family")
-        end
-
-        -- Reset the prevention flag after summoning
-        LM.preventDoubleCounting = false
-    end
-end
-        end)
-
         -- Set up appropriate attributes for secure button functionality
         button:SetAttribute("type", nil)
 
@@ -851,6 +693,7 @@ function LiteMountMountButtonMixin:OnShow()
         self:SetWidth(parent:GetWidth())
     end
 end
+
 
 --[[------------------------------------------------------------------------]]--
 

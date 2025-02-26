@@ -14,6 +14,7 @@
     <Include file="General.xml" />
     <Include file="Mounts.xml" />
     <Include file="Rules.xml" />
+	<Include file="EntityHelpers.lua" />
     <Include file="Groups.xml" />
     <Include file="Families.xml" />
     <Include file="Macro.xml" />

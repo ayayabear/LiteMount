@@ -7,9 +7,17 @@ local _, LM = ...
 LM.MountList = LM.MountList or { }  -- Initialize if it doesn't exist
 LM.MountList.__index = LM.MountList
 
+-- Cache management for entity status
+if not LM.entityStatusCache then
+    LM.entityStatusCache = {
+        groups = {},
+        families = {},
+        lastUpdate = 0
+    }
+end
+
 local SortFunctions = {
     ['default'] = function(a, b)
-        --LM.Debug("Default sorting: " .. a.name .. " vs " .. b.name)
         if a.isGroup ~= b.isGroup then 
             return a.isGroup 
         end
@@ -20,12 +28,10 @@ local SortFunctions = {
     end,
     
     ['name'] = function(a, b)
-        LM.Debug("Name sorting: " .. a.name .. " vs " .. b.name)
         return a.name < b.name
     end,
     
     ['rarity'] = function(a, b)
-        LM.Debug("Rarity sorting: " .. a.name .. " vs " .. b.name)
         -- Mounts first, then groups/families
         if a.isGroup or a.isFamily then 
             if not (b.isGroup or b.isFamily) then
@@ -44,7 +50,6 @@ local SortFunctions = {
     ['summons'] = function(a, b)
         local aCount = a:GetSummonCount() or 0
         local bCount = b:GetSummonCount() or 0
-        LM.Debug("Summons sorting: " .. a.name .. "(" .. aCount .. ") vs " .. b.name .. "(" .. bCount .. ")")
         if aCount == bCount then
             return a.name < b.name
         end
@@ -53,13 +58,10 @@ local SortFunctions = {
 }
 
 function LM.MountList:Sort(key)
-    --LM.Debug("Sort called with key: " .. tostring(key))
     if not key then
-        LM.Debug("No sort key provided, using default")
         key = 'default'
     end
     if not SortFunctions[key] then
-       -- LM.Debug("Invalid sort key: " .. key .. ", using default")
         key = 'default'
     end
     table.sort(self, SortFunctions[key])
@@ -69,109 +71,110 @@ function LM.MountList:New(ml)
     return setmetatable(ml or {}, LM.MountList)
 end
 
-if not LM.usabilityCache then
-    LM.usabilityCache = {
-        groups = {},
-        families = {},
-        lastUpdate = 0
-    }
-end
-
 function LM.MountList:ClearCache()
     self.cachedCombinedList = nil
     self.cachedSearchText = nil
 end
 
-function LM.MountList:GetCombinedList()
-    -- If we already have a cached list and nothing has changed, return it
-    if self.cachedCombinedList and
-       self.cachedSearchText == LM.UIFilter.GetSearchText() then
-        LM.Debug("Returning cached list with " .. #self.cachedCombinedList .. " items")
-        return self.cachedCombinedList
-    end
-
-    local combinedList = self:New()
-    local groups = LM.Options:GetGroupNames()
-    local families = LM.Options:GetFamilyNames()
-
-    LM.Debug("Found " .. #groups .. " groups and " .. #families .. " families")
-
-    -- Get search text for filtering
-    local filtertext = LM.UIFilter.GetSearchText()
+-- Main function to get mounts from a group or family entity
+-- Used for both UI display and mount summoning
+function LM.GetMountsFromEntity(isGroup, entityName)
+    local mounts = LM.MountList:New()
+    
+    -- Determine if we're in a summoning context or a UI display context
+    local context = LiteMountOptions and LiteMountOptions.CurrentOptionsPanel
+    local isSummoning = not context or (context ~= LiteMountGroupsPanel and context ~= LiteMountFamiliesPanel)
+    
+    -- Get current search state - ignore if summoning
+    local filtertext = isSummoning and "" or LM.UIFilter.GetSearchText()
     local isSearching = filtertext and filtertext ~= SEARCH and filtertext ~= ""
 
-    -- Function to check if a name matches search
-    local function matchesSearch(name)
-        if not isSearching then return true end
-        return string.find(string.lower(name), string.lower(filtertext), 1, true) ~= nil
-    end
-
-    -- Add groups that match search AND aren't filtered by checkboxes
-    for _, groupName in ipairs(groups) do
-        if matchesSearch(groupName) and not LM.UIFilter.filterList.group[groupName] then
-            local groupMount = {
-                isGroup = true,
-                name = groupName,
-                group = groupName,
-                priority = LM.Options:GetGroupPriority(groupName),
-                GetPriority = function() return LM.Options:GetGroupPriority(groupName) end,
-                IsCollected = function() return true end,
-                GetSummonCount = function() 
-                    LM.Debug("Getting summon count for group: " .. groupName)
-                    return LM.Options:GetEntitySummonCount(true, groupName) 
+    for _, mount in ipairs(LM.MountRegistry.mounts) do
+        local isInEntity = false
+        if isGroup then
+            isInEntity = LM.Options:IsMountInGroup(mount, entityName)
+        else
+            isInEntity = LM.Options:IsMountInFamily(mount, entityName)
+        end
+        
+        -- Only check if mount is in entity, collected, usable and has priority
+        if isInEntity and mount:IsCollected() and mount:IsUsable() and mount:GetPriority() > 0 then
+            -- Check faction requirements
+            local isRightFaction = true
+            if mount.mountID then
+                local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
+                if isFactionSpecific then
+                    local playerFaction = UnitFactionGroup('player')
+                    isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
+                                   (playerFaction == 'Alliance' and faction == 1)
                 end
-            }
-            table.insert(combinedList, groupMount)
-        end
-    end
+            end
+            
+            -- Check if mount matches search if searching
+            local matchesSearch = true
+            if isSearching then
+                matchesSearch = strfind(mount.name:lower(), filtertext:lower(), 1, true)
+            end
 
-    -- Add families that match search AND aren't filtered by checkboxes
-    for _, familyName in ipairs(families) do
-        if matchesSearch(familyName) and not LM.UIFilter.filterList.familygroup[familyName] then
-            local familyMount = {
-                isFamily = true,
-                name = familyName,
-                family = familyName,
-                priority = LM.Options:GetFamilyPriority(familyName),
-                GetPriority = function() return LM.Options:GetFamilyPriority(familyName) end,
-                IsCollected = function() return true end,
-                GetSummonCount = function() 
-                    LM.Debug("Getting summon count for family: " .. familyName)
-                    return LM.Options:GetEntitySummonCount(false, familyName) 
+            -- Check if the mount passes type filters - only for UI display
+            local passesTypeFilters = true
+            if not isSummoning and LM.UIFilter and LM.UIFilter.filterList then
+                local typeFilters = {}
+                for flagName in pairs(LM.FLAG or {}) do
+                    if LM.UIFilter.filterList.flag and LM.UIFilter.filterList.flag[flagName] then
+                        typeFilters[flagName] = true
+                    end
                 end
-            }
-            table.insert(combinedList, familyMount)
+                
+                if next(typeFilters) ~= nil then
+                    passesTypeFilters = false
+                    local mountFlags = mount:GetFlags()
+                    for flagName in pairs(mountFlags) do
+                        if LM.FLAG[flagName] and not typeFilters[flagName] then
+                            passesTypeFilters = true
+                            break
+                        end
+                    end
+                end
+            end
+
+            -- Add mount if it passes all checks
+            if isRightFaction and (not isSearching or matchesSearch) and passesTypeFilters then
+                table.insert(mounts, mount)
+            end
         end
     end
 
-    -- Add mounts that match search
-    for _, mount in ipairs(self) do
-        if matchesSearch(mount.name) then
-            table.insert(combinedList, mount)
-        end
-    end
-
-    -- Before returning, sort the list
-    LM.Debug("Sorting combined list by: " .. (LM.UIFilter.GetSortKey() or "default"))
-    combinedList:Sort(LM.UIFilter.GetSortKey())
-
-    -- Cache and return the sorted list
-    self.cachedCombinedList = combinedList
-    self.cachedSearchText = filtertext
-
-    return combinedList
+    return mounts
 end
 
-function LM.GetGroupOrFamilyStatus(isGroup, name)
-    local hasUsableMounts = false
-    local hasCollectedMounts = false
-    local hasPriorityMounts = false
+-- Consolidated function to determine status of a group or family
+-- Returns a table with status information used for UI display
+function LM.GetEntityStatus(isGroup, entityName)
+    -- Return cached status if available and not expired
+    local cacheContainer = isGroup and LM.entityStatusCache.groups or LM.entityStatusCache.families
     
-    -- Check if any type filter is unchecked
+    if cacheContainer[entityName] and 
+       (GetTime() - LM.entityStatusCache.lastUpdate) < 5 then  -- 5 second cache
+        return cacheContainer[entityName]
+    end
+    
+    -- Calculate status
+    local status = {
+        hasUsableMounts = false,
+        hasCollectedMounts = false,
+        hasPriorityMounts = false,
+        isRed = false,
+        shouldBeGray = true
+    }
+    
+    -- Get type filters if any
     local typeFilters = {}
-    for flagName in pairs(LM.FLAG) do
-        if LM.UIFilter.filterList.flag[flagName] then
-            typeFilters[flagName] = true
+    if LM.UIFilter and LM.UIFilter.filterList then
+        for flagName in pairs(LM.FLAG or {}) do
+            if LM.UIFilter.filterList.flag and LM.UIFilter.filterList.flag[flagName] then
+                typeFilters[flagName] = true
+            end
         end
     end
     local hasTypeFilters = next(typeFilters) ~= nil
@@ -180,15 +183,16 @@ function LM.GetGroupOrFamilyStatus(isGroup, name)
         local isMountInEntity = false
         
         if isGroup then
-            isMountInEntity = LM.Options:IsMountInGroup(mount, name)
+            isMountInEntity = LM.Options:IsMountInGroup(mount, entityName)
         else
-            isMountInEntity = LM.Options:IsMountInFamily(mount, name)
+            isMountInEntity = LM.Options:IsMountInFamily(mount, entityName)
         end
         
         if isMountInEntity then
             -- Check if mount has priority > 0
             if mount:GetPriority() > 0 then
-                hasPriorityMounts = true
+                status.hasPriorityMounts = true
+                status.shouldBeGray = false
                 
                 -- Check faction
                 local isRightFaction = true
@@ -202,7 +206,7 @@ function LM.GetGroupOrFamilyStatus(isGroup, name)
                 end
                 
                 if mount:IsCollected() then
-                    hasCollectedMounts = true
+                    status.hasCollectedMounts = true
                     
                     -- Check if the mount passes type filters
                     local passesTypeFilters = true
@@ -219,210 +223,107 @@ function LM.GetGroupOrFamilyStatus(isGroup, name)
                     
                     -- Only count as usable if it meets all criteria
                     if isRightFaction and mount:IsUsable() and passesTypeFilters then
-                        hasUsableMounts = true
+                        status.hasUsableMounts = true
                     end
                 end
             end
         end
     end
     
-    -- A group/family is:
-    -- - Normal if it has at least one usable mount with priority > 0
-    -- - Red if it has mounts with priority > 0 but none are usable
-    -- - Gray if it has no mounts with priority > 0
-    local isRed = hasPriorityMounts and hasCollectedMounts and not hasUsableMounts
+    -- A group/family is red if it has mounts with priority > 0 that are collected
+    -- but none are usable for the current context
+    status.isRed = status.hasPriorityMounts and status.hasCollectedMounts and not status.hasUsableMounts
     
-    return {
-        hasCollectedMounts = hasCollectedMounts,
-        hasUsableMounts = hasUsableMounts,
-        hasPriorityMounts = hasPriorityMounts,
-        isRed = isRed,
-        shouldBeGray = not hasPriorityMounts
-    }
+    -- Cache the result
+    cacheContainer[entityName] = status
+    LM.entityStatusCache.lastUpdate = GetTime()
+    
+    return status
 end
 
--- The RefreshUsabilityCache() function remains exactly the same as you had it
-function LM.RefreshUsabilityCache()
-    local cache = LM.usabilityCache
-    cache.groups = {}
-    cache.families = {}
-    
-    -- Get current search text
-    local searchText = LM.UIFilter.GetSearchText()
-    local isSearching = searchText and searchText ~= SEARCH and searchText ~= ""
-    
-    -- Check if any type filter is unchecked
-    local typeFilters = {}
-    for flagName in pairs(LM.FLAG) do
-        if LM.UIFilter.filterList.flag[flagName] then
-            typeFilters[flagName] = true
+function LM.MountList:GetCombinedList()
+    -- If we already have a cached list and nothing has changed, return it
+    if self.cachedCombinedList and
+       self.cachedSearchText == LM.UIFilter.GetSearchText() then
+        return self.cachedCombinedList
+    end
+
+    local combinedList = self:New()
+    local groups = LM.Options:GetGroupNames()
+    local families = LM.Options:GetFamilyNames()
+
+    -- Get search text for filtering
+    local filtertext = LM.UIFilter.GetSearchText()
+    local isSearching = filtertext and filtertext ~= SEARCH and filtertext ~= ""
+
+    -- Function to check if a name matches search
+    local function matchesSearch(name)
+        if not isSearching then return true end
+        return string.find(string.lower(name), string.lower(filtertext), 1, true) ~= nil
+    end
+
+    -- Add groups that match search AND aren't filtered by checkboxes
+	for _, groupName in ipairs(groups) do
+	-- Fixed condition to properly handle nil values in filterList
+		local isFiltered = LM.UIFilter.filterList and 
+			LM.UIFilter.filterList.group and 
+			LM.UIFilter.filterList.group[groupName] == true
+		
+		if matchesSearch(groupName) and not isFiltered then
+			local groupMount = {
+				isGroup = true,
+				name = groupName,
+				group = groupName,
+				priority = LM.Options:GetGroupPriority(groupName),
+				GetPriority = function() return LM.Options:GetGroupPriority(groupName) end,
+				IsCollected = function() return true end,
+				GetSummonCount = function() 
+					LM.Debug("Getting summon count for group: " .. groupName)
+					return LM.Options:GetEntitySummonCount(true, groupName) 
+				end
+			}
+			table.insert(combinedList, groupMount)
+		end
+	end
+
+    -- Add families that match search AND aren't filtered by checkboxes
+    for _, familyName in ipairs(families) do
+        if matchesSearch(familyName) and 
+           not (LM.UIFilter.filterList and LM.UIFilter.filterList.familygroup and LM.UIFilter.filterList.familygroup[familyName]) then
+            local familyMount = {
+                isFamily = true,
+                name = familyName,
+                family = familyName,
+                priority = LM.Options:GetFamilyPriority(familyName),
+                GetPriority = function() return LM.Options:GetFamilyPriority(familyName) end,
+                IsCollected = function() return true end,
+                GetSummonCount = function() 
+                    return LM.Options:GetEntitySummonCount(false, familyName) 
+                end
+            }
+            table.insert(combinedList, familyMount)
         end
     end
-    local hasTypeFilters = next(typeFilters) ~= nil
-    
-    -- Refresh group usability
-    for _, groupName in ipairs(LM.Options:GetGroupNames()) do
-        local groupStatus = {
-            hasCollectedMounts = false,
-            hasUsableMounts = false,
-            hasRightFactionMounts = false,
-            isRed = false
-        }
-        
-        -- Check each mount in the group
-        for _, mount in ipairs(LM.MountRegistry.mounts) do
-            if LM.Options:IsMountInGroup(mount, groupName) and mount:GetPriority() > 0 then
-                -- Check if mount matches search filter
-                local matchesSearch = true
-                if isSearching then
-                    matchesSearch = string.find(mount.name:lower(), searchText:lower(), 1, true) ~= nil
-                end
-                
-                if matchesSearch then
-                    -- Check faction using existing method
-                    local isRightFaction = true
-                    if mount.mountID then
-                        local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
-                        if isFactionSpecific then
-                            local playerFaction = UnitFactionGroup('player')
-                            isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
-                                             (playerFaction == 'Alliance' and faction == 1)
-                        end
-                    end
-                    
-                    -- Check if the mount passes type filters
-                    local passesTypeFilters = true
-                    if hasTypeFilters then
-                        passesTypeFilters = false
-                        local mountFlags = mount:GetFlags()
-                        for flagName in pairs(mountFlags) do
-                            if LM.FLAG[flagName] and not typeFilters[flagName] then
-                                passesTypeFilters = true
-                                break
-                            end
-                        end
-                    end
-                    
-                    if mount:IsCollected() then
-                        groupStatus.hasCollectedMounts = true
-                        
-                        -- Only consider usability if it's the right faction and passes type filters
-                        if isRightFaction then
-                            groupStatus.hasRightFactionMounts = true
-                            if mount:IsUsable() and passesTypeFilters then
-                                groupStatus.hasUsableMounts = true
-                            end
-                        end
-                    end
-                end
-            end
+
+    -- Add mounts that match search
+    for _, mount in ipairs(self) do
+        if matchesSearch(mount.name) then
+            table.insert(combinedList, mount)
         end
-        
-        groupStatus.isRed = groupStatus.hasCollectedMounts and groupStatus.hasRightFactionMounts and not groupStatus.hasUsableMounts
-        cache.groups[groupName] = groupStatus
     end
-    
-    -- Apply the same logic for families
-    for _, familyName in ipairs(LM.Options:GetFamilyNames()) do
-        local familyStatus = {
-            hasCollectedMounts = false,
-            hasUsableMounts = false,
-            hasRightFactionMounts = false,
-            isRed = false
-        }
-        
-        -- Check each mount in the family
-        for _, mount in ipairs(LM.MountRegistry.mounts) do
-            if LM.Options:IsMountInFamily(mount, familyName) and mount:GetPriority() > 0 then
-                -- Check if mount matches search filter
-                local matchesSearch = true
-                if isSearching then
-                    matchesSearch = string.find(mount.name:lower(), searchText:lower(), 1, true) ~= nil
-                end
-                
-                if matchesSearch then
-                    -- Check faction using existing method
-                    local isRightFaction = true
-                    if mount.mountID then
-                        local _, _, _, _, _, _, _, isFactionSpecific, faction = C_MountJournal.GetMountInfoByID(mount.mountID)
-                        if isFactionSpecific then
-                            local playerFaction = UnitFactionGroup('player')
-                            isRightFaction = (playerFaction == 'Horde' and faction == 0) or 
-                                             (playerFaction == 'Alliance' and faction == 1)
-                        end
-                    end
-                    
-                    -- Check if the mount passes type filters
-                    local passesTypeFilters = true
-                    if hasTypeFilters then
-                        passesTypeFilters = false
-                        local mountFlags = mount:GetFlags()
-                        for flagName in pairs(mountFlags) do
-                            if LM.FLAG[flagName] and not typeFilters[flagName] then
-                                passesTypeFilters = true
-                                break
-                            end
-                        end
-                    end
-                    
-                    if mount:IsCollected() then
-                        familyStatus.hasCollectedMounts = true
-                        
-                        -- Only consider usability if it's the right faction and passes type filters
-                        if isRightFaction then
-                            familyStatus.hasRightFactionMounts = true
-                            if mount:IsUsable() and passesTypeFilters then
-                                familyStatus.hasUsableMounts = true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        
-        familyStatus.isRed = familyStatus.hasCollectedMounts and familyStatus.hasRightFactionMounts and not familyStatus.hasUsableMounts
-        cache.families[familyName] = familyStatus
-    end
-    
-    cache.lastUpdate = GetTime()
-    LM.Debug("Refreshed usability cache with search: " .. tostring(searchText))
+
+    -- Sort the list
+    combinedList:Sort(LM.UIFilter.GetSortKey())
+
+    -- Cache and return the sorted list
+    self.cachedCombinedList = combinedList
+    self.cachedSearchText = filtertext
+
+    return combinedList
 end
 
-function LM.GetUsableMountsFromEntity(isGroup, entityName)
-    local mounts = LM.MountList:New()
-    local searchText = LM.UIFilter.GetSearchText()
-    local isSearching = searchText and searchText ~= SEARCH and searchText ~= ""
-    
-    for _, mount in ipairs(LM.MountRegistry.mounts) do
-        local isInEntity = false
-        if isGroup then
-            isInEntity = LM.Options:IsMountInGroup(mount, entityName)
-        else
-            isInEntity = LM.Options:IsMountInFamily(mount, entityName)
-        end
-        
-        -- Check if the mount matches criteria
-        if isInEntity and mount:IsCollected() and mount:IsUsable() and mount:GetPriority() > 0 then
-            -- Only include the mount if it matches the search filter (or no search is active)
-            local matchesSearch = true
-            if isSearching then
-                matchesSearch = string.find(mount.name:lower(), searchText:lower(), 1, true) ~= nil
-            end
-            
-            if matchesSearch then
-                table.insert(mounts, mount)
-            end
-        end
-    end
-    LM.Debug("GetUsableMountsFromEntity is defined: " .. tostring(type(LM.GetUsableMountsFromEntity) == "function"))
-    return mounts
-end
-
--- New direct summoning helper function that bypasses the usual mount selection logic
-
+-- Direct summon helper function
 function LM.DirectlySummonRandomMountFromEntity(isGroup, entityName)
-    LM.Debug("Starting DirectlySummonRandomMountFromEntity for: " .. tostring(entityName))
-    
     local mounts = LM.GetMountsFromEntity(isGroup, entityName)
     if #mounts > 0 then
         local style = LM.Options:GetOption('randomWeightStyle')
@@ -430,8 +331,10 @@ function LM.DirectlySummonRandomMountFromEntity(isGroup, entityName)
         
         if selectedMount and selectedMount.mountID then
             -- Increment entity count first
-            LM.Debug("Incrementing count for " .. (isGroup and "group: " or "family: ") .. entityName)
             LM.Options:IncrementEntitySummonCount(isGroup, entityName)
+            
+            -- Then increment mount's individual count
+            LM.Options:IncrementSummonCount(selectedMount)
             
             -- Then summon mount
             C_MountJournal.SummonByID(selectedMount.mountID)
@@ -440,9 +343,6 @@ function LM.DirectlySummonRandomMountFromEntity(isGroup, entityName)
     end
     return false
 end
-
--- Rest of the MountList.lua code remains exactly the same as before, starting from Copy() function
-
 
 function LM.MountList:Copy()
     local out = { }
@@ -753,7 +653,6 @@ function LM.MountList:PriorityWeights()
     return weights
 end
 
--- Rest of the functions remain exactly the same as in your original file
 function LM.MountList:RarityWeights()
     local weights = { total=0 }
 
@@ -799,7 +698,6 @@ end
 
 function LM.MountList:WeightedRandom(weights, r)
     if weights.total == 0 then
-        LM.Debug('  * WeightedRandom n=%d all weights 0', #self)
         return
     end
 
@@ -814,11 +712,8 @@ function LM.MountList:WeightedRandom(weights, r)
     end
 end
 
--- Modify MountList:Random in MountList.lua to handle priority 0 mounts
 function LM.MountList:Random(r, style)
     if #self == 0 then return end
-    
-    LM.Debug("MountList:Random called with " .. #self .. " mounts and style " .. tostring(style))
     
     if style == 'Priority' then
         -- Check if we only have priority 0 mounts
@@ -831,7 +726,6 @@ function LM.MountList:Random(r, style)
         end
         
         if allZeroPriority then
-            LM.Debug("All mounts have priority 0, using SimpleRandom instead")
             return self:SimpleRandom(r)
         else
             -- Normal priority-based weighting
@@ -889,4 +783,3 @@ function LM.MountList:Dump()
         m:Dump()
     end
 end
-

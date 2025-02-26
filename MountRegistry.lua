@@ -2,7 +2,7 @@
 
   LiteMount/MountRegistry.lua
 
-  Information on all your mounts.
+  Central registry for all mount information.
 
   Copyright 2011 Mike Battersby
 
@@ -15,13 +15,15 @@ local C_Spell = LM.C_Spell
 
 local CallbackHandler = LibStub:GetLibrary("CallbackHandler-1.0", true)
 
+-- List of attributes to index for quick lookup
 local IndexAttributes = { 'mountID', 'name', 'spellID', 'overrideSpellID' }
 
--- track correctly when summoning from a group/family
+-- Flag to prevent double counting when summoning from a group/family
 LM.preventDoubleCounting = false
 
-LM.MountRegistry = CreateFrame("Frame", nil, UIParent)
-LM.MountRegistry.callbacks = CallbackHandler:New(LM.MountRegistry)
+--[[----------------------------------------------------------------------------
+  Mount Type Definitions
+----------------------------------------------------------------------------]]--
 
 -- Type, type class create args
 local MOUNT_SPELLS = {
@@ -31,7 +33,6 @@ local MOUNT_SPELLS = {
     { "Nagrand", LM.SPELL.TELAARI_TALBUK, 'Alliance', 'RUN' },
     { "Soar", LM.SPELL.SOAR, 'FLY', 'DRAGONRIDING' },
     { "Drive", LM.SPELL.G_99_BREAKNECK, 'DRIVE' },
---  { "Soulshape", LM.SPELL.SOULSHAPE, 'RUN', 'SLOW' },
     { "ItemSummoned",
         LM.ITEM.MAGIC_BROOM, LM.SPELL.MAGIC_BROOM, 'RUN', 'FLY', },
     { "ItemSummoned",
@@ -42,8 +43,6 @@ local MOUNT_SPELLS = {
         LM.ITEM.SAPPHIRE_QIRAJI_RESONATING_CRYSTAL, LM.SPELL.BLUE_QIRAJI_WAR_TANK, 'RUN', },
     { "ItemSummoned",
         LM.ITEM.RUBY_QIRAJI_RESONATING_CRYSTAL, LM.SPELL.RED_QIRAJI_WAR_TANK, 'RUN', },
---  { "ItemSummoned",
---      LM.ITEM.DRAGONWRATH_TARECGOSAS_REST, LM.SPELL.TARECGOSAS_VISAGE, 'FLY' },
     { "ItemSummoned",
         LM.ITEM.MAWRAT_HARNESS, LM.SPELL.MAWRAT_HARNESS, 'RUN' },
     { "ItemSummoned",
@@ -54,12 +53,13 @@ local MOUNT_SPELLS = {
         LM.ITEM.MAW_SEEKER_HARNESS, LM.SPELL.MAW_SEEKER_HARNESS, 'RUN' },
 }
 
+-- Project-specific mount spells
 local MOUNT_SPELLS_BY_PROJECT = LM.TableWithDefault({
-    [1] = {
+    [1] = {  -- Retail
         { "TravelForm", LM.SPELL.TRAVEL_FORM, 'DRAGONRIDING', 'RUN', 'FLY', 'SWIM' },
         { "TravelForm", LM.SPELL.MOUNT_FORM, 'RUN' },
     },
-    DEFAULT = {
+    DEFAULT = {  -- Classic
         { "TravelForm", LM.SPELL.TRAVEL_FORM, 'RUN', 'SLOW' },
         { "TravelForm", LM.SPELL.AQUATIC_FORM_CLASSIC, 'SWIM' },
         { "TravelForm", LM.SPELL.FLIGHT_FORM_CLASSIC, 'FLY' },
@@ -67,30 +67,35 @@ local MOUNT_SPELLS_BY_PROJECT = LM.TableWithDefault({
     },
 })
 
+-- Combine all mount spells
 tAppendAll(MOUNT_SPELLS, MOUNT_SPELLS_BY_PROJECT[WOW_PROJECT_ID])
 
+--[[----------------------------------------------------------------------------
+  Registry Events
+----------------------------------------------------------------------------]]--
+
+-- Events that should trigger a registry refresh
 local RefreshEvents = {
     ["NEW_MOUNT_ADDED"] = true,
-    -- Companion change. Don't add COMPANION_UPDATE to this as it fires
-    -- for units other than "player" and triggers constantly.
     ["COMPANION_LEARNED"] = true,
     ["COMPANION_UNLEARNED"] = true,
-    -- This fires when something is favorited or unfavorited
-    -- ["MOUNT_JOURNAL_SEARCH_UPDATED"] = true,
-    -- Talents (might have mount abilities). Glyphs that teach spells
-    -- fire PLAYER_TALENT_UPDATE too, don't need to watch GLYPH_ events.
     ["ACTIVE_TALENT_GROUP_CHANGED"] = true,
     ["PLAYER_LEVEL_UP"] = true,
     ["PLAYER_TALENT_UPDATE"] = true,
-    -- You might have received a mount item (e.g., Magic Broom).
     ["BAG_UPDATE_DELAYED"] = true,
-    -- Some flying unlocks are an achievement
     ["ACHIEVEMENT_EARNED"] = true,
 }
 
+--[[----------------------------------------------------------------------------
+  MountRegistry Object
+----------------------------------------------------------------------------]]--
+
+LM.MountRegistry = CreateFrame("Frame", nil, UIParent)
+LM.MountRegistry.callbacks = CallbackHandler:New(LM.MountRegistry)
+
 function LM.MountRegistry:OnEvent(event, ...)
     if RefreshEvents[event] then
-        LM.Debug("Got refresh event "..event)
+        LM.Debug("Got refresh event " .. event)
         self.needRefresh = true
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local _, _, spellID = ...
@@ -103,25 +108,30 @@ function LM.MountRegistry:OnEvent(event, ...)
 end
 
 function LM.MountRegistry:Initialize()
-
+    -- Initialize the mount list
     self.mounts = LM.MountList:New()
 
-    -- These are in this order so custom stuff is prioritized
-    self:AddSpellMounts()
-    self:AddJournalMounts()
+    -- Add mounts in the correct order
+    self:AddSpellMounts()      -- Custom spell mounts first
+    self:AddJournalMounts()    -- Journal mounts second
     self:UpdateFilterUsability()
 
+    -- Build indexes for quick lookup
     self:BuildIndexes()
 
-    -- Refresh event setup
+    -- Set up event handling
     self:SetScript("OnEvent", self.OnEvent)
 
+    -- Register for refresh events
     for ev in pairs(RefreshEvents) do
         self:RegisterEvent(ev)
     end
+    
+    -- Track mount summoning
     self:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 end
 
+-- Build lookup indexes for quick access to mounts
 function LM.MountRegistry:BuildIndexes()
     self.indexes = { }
     for _, index in ipairs(IndexAttributes) do
@@ -134,36 +144,39 @@ function LM.MountRegistry:BuildIndexes()
     end
 end
 
--- All This dumbassery is to deal with the fact that two item-summoned mounts
--- (Blue/Red Qiraji War Tank) are in the journal but are actually summoned by
--- items. It copies across enough that the tooltip looks like LM.Journal
--- version (including preview) but the actions are all still LM.ItemSummoned.
-
-local CopyAttributesFromJournal = {
-    'modelID', 'sceneID', 'mountID', 'isSelfMount', 'description',
-    'sourceType', 'sourceText'
-}
-
+-- Add a mount to the registry
 function LM.MountRegistry:AddMount(m)
     local existing = self:GetMountBySpell(m.spellID)
 
     if existing then
-        for _, attr in ipairs(CopyAttributesFromJournal) do
+        -- If mount already exists, copy any missing attributes
+        for _, attr in ipairs({'modelID', 'sceneID', 'mountID', 'isSelfMount', 
+                               'description', 'sourceType', 'sourceText'}) do
             existing[attr] = existing[attr] or m[attr]
         end
     else
+        -- Otherwise add the new mount
         tinsert(self.mounts, m)
     end
 
-    LM.UIFilter.RegisterUsedTypeID(m.mountTypeID or 0)
+    -- Register mount type ID for filtering
+    if LM.UIFilter and LM.UIFilter.RegisterUsedTypeID then
+        LM.UIFilter.RegisterUsedTypeID(m.mountTypeID or 0)
+    end
 end
 
+--[[----------------------------------------------------------------------------
+  Journal Mount Filtering
+----------------------------------------------------------------------------]]--
+
+-- Default filter settings for reading all mounts from journal
 local CollectedFilterSettings = {
     [LE_MOUNT_JOURNAL_FILTER_COLLECTED] = true,
     [LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED] = true,
     [LE_MOUNT_JOURNAL_FILTER_UNUSABLE] = false,
 }
 
+-- Save and modify journal filters temporarily
 local function SaveAndSetJournalFilters()
     local data = {
         collected = {},
@@ -171,11 +184,13 @@ local function SaveAndSetJournalFilters()
         types = {},
     }
 
+    -- Save and set collected filters
     for setting, value in pairs(CollectedFilterSettings) do
         data.collected[setting] = C_MountJournal.GetCollectedFilterSetting(setting)
         C_MountJournal.SetCollectedFilterSetting(setting, value)
     end
 
+    -- Save and set source filters
     for i = 1, C_PetJournal.GetNumPetSources() do
         if C_MountJournal.IsValidSourceFilter(i) then
             data.sources[i] = C_MountJournal.IsSourceChecked(i)
@@ -183,6 +198,7 @@ local function SaveAndSetJournalFilters()
         end
     end
 
+    -- Save and set type filters
     for i = 1, Enum.MountTypeMeta.NumValues do
         if C_MountJournal.IsValidTypeFilter(i) then
             data.types[i] = C_MountJournal.IsTypeChecked(i)
@@ -190,6 +206,7 @@ local function SaveAndSetJournalFilters()
         end
     end
 
+    -- Save search text
     if MountJournalSearchBox then
         data.searchText = MountJournalSearchBox:GetText()
         C_MountJournal.SetSearch("")
@@ -200,39 +217,49 @@ local function SaveAndSetJournalFilters()
     return data
 end
 
+-- Restore journal filters
 local function RestoreJournalFilters(data)
+    -- Restore collected filters
     for setting, value in pairs(data.collected) do
         C_MountJournal.SetCollectedFilterSetting(setting, value)
     end
+    
+    -- Restore source filters
     for i, value in pairs(data.sources) do
         C_MountJournal.SetSourceFilter(i, value)
     end
+    
+    -- Restore type filters
     for i, value in pairs(data.types) do
         C_MountJournal.SetTypeFilter(i, value)
     end
+    
+    -- Restore search
     C_MountJournal.SetSearch(data.searchText)
 end
 
--- This is horrible but I can't find any other way to get the "unusable"
--- flag as per the filter except fiddle with the filter and query
-
+-- Update mount usability flags based on journal filter
 function LM.MountRegistry:UpdateFilterUsability()
+    -- Save current filter state
     local data = SaveAndSetJournalFilters()
 
+    -- Create a lookup of usable mounts according to the journal
     local filterUsableMounts = {}
-
     for i = 1, C_MountJournal.GetNumDisplayedMounts() do
         local mountID = select(12, C_MountJournal.GetDisplayedMountInfo(i))
         filterUsableMounts[mountID] = true
     end
 
-    for _,m in ipairs(self:FilterSearch("JOURNAL")) do
+    -- Update usability flags for all journal mounts
+    for _, m in ipairs(self:FilterSearch("JOURNAL")) do
         m.isFilterUsable = filterUsableMounts[m.mountID] or false
     end
 
+    -- Restore original filter state
     RestoreJournalFilters(data)
 end
 
+-- Add journal mounts to registry
 function LM.MountRegistry:AddJournalMounts()
     for _, mountID in ipairs(C_MountJournal.GetMountIDs()) do
         local m = LM.Mount:Get("Journal", mountID)
@@ -240,10 +267,9 @@ function LM.MountRegistry:AddJournalMounts()
     end
 end
 
--- The unpack function turns a table into a list. I.e.,
---      unpack({ a, b, c }) == a, b, c
+-- Add spell-based mounts to registry
 function LM.MountRegistry:AddSpellMounts()
-    for _,typeAndArgs in ipairs(MOUNT_SPELLS) do
+    for _, typeAndArgs in ipairs(MOUNT_SPELLS) do
         local m = LM.Mount:Get(unpack(typeAndArgs))
         if m then
             self:AddMount(m)
@@ -251,79 +277,92 @@ function LM.MountRegistry:AddSpellMounts()
     end
 end
 
+-- Refresh all mounts if needed
 function LM.MountRegistry:RefreshMounts()
     if self.needRefresh then
         LM.Debug("Refreshing status of all mounts.")
-        for _,m in ipairs(self.mounts) do
+        for _, m in ipairs(self.mounts) do
             m:Refresh()
         end
         self.needRefresh = nil
     end
 end
 
+--[[----------------------------------------------------------------------------
+  Mount Filtering and Lookup
+----------------------------------------------------------------------------]]--
+
+-- Filter mounts based on criteria
 function LM.MountRegistry:FilterSearch(...)
     return self.mounts:FilterSearch(...)
 end
 
--- Limits can be filter (no prefix), set (=), reduce (-) or extend (+).
-
+-- Apply mount limits
 function LM.MountRegistry:Limit(...)
     return self.mounts:Limit(...)
 end
 
-
--- This is deliberately by spell name instead of using the
--- spell ID because there are some horde/alliance mounts with
--- the same name but different spells.
-
-local function MatchMountToBuff(m, buffNames)
-    if buffNames[m.name] then return true end
-    local spellName = C_Spell.GetSpellName(m.spellID)
-    if spellName and buffNames[spellName] then return true end
-end
-
+-- Find a mount based on active buffs
 function LM.MountRegistry:GetMountFromUnitAura(unitid)
     local buffNames = { }
     local i = 1
+    
+    -- Collect all buff names
     while true do
         local auraInfo = C_UnitAuras.GetAuraDataByIndex(unitid, i)
-        if auraInfo then buffNames[auraInfo.name] = true else break end
+        if auraInfo then 
+            buffNames[auraInfo.name] = true 
+        else 
+            break 
+        end
         i = i + 1
     end
-    return self.mounts:Find(MatchMountToBuff, buffNames)
+    
+    -- Find matching mount
+    return self.mounts:Find(function(m, names) 
+        if names[m.name] then return true end
+        local spellName = C_Spell.GetSpellName(m.spellID)
+        if spellName and names[spellName] then return true end
+        return false
+    end, buffNames)
 end
 
--- This is not self:GetMountFromUnitAura('player') because it matches
--- by ID and not by name, making sure you get the right version of
--- mounts with one for each faction.
-
+-- Get the currently active mount
 function LM.MountRegistry:GetActiveMount()
     local buffIDs = { }
     local i = 1
+    
+    -- Collect all buff IDs
     while true do
         local auraInfo = C_UnitAuras.GetAuraDataByIndex('player', i)
-        if auraInfo then buffIDs[auraInfo.spellId] = true else break end
+        if auraInfo then 
+            buffIDs[auraInfo.spellId] = true 
+        else 
+            break 
+        end
         i = i + 1
     end
+    
+    -- Find mount matching active buffs
     return self.mounts:Find(function (m) return m:IsActive(buffIDs) end)
 end
 
+-- Find mount by name
 function LM.MountRegistry:GetMountByName(name)
-    local function match(m) return m.name == name end
-    return self.mounts:Find(match)
+    return self.mounts:Find(function(m) return m.name == name end)
 end
 
+-- Find mount by spell ID
 function LM.MountRegistry:GetMountBySpell(id)
-    local function match(m) return m.spellID == id end
-    return self.mounts:Find(match)
+    return self.mounts:Find(function(m) return m.spellID == id end)
 end
 
+-- Find mount by journal ID
 function LM.MountRegistry:GetMountByID(id)
-    local function match(m) return m.mountID == id end
-    return self.mounts:Find(match)
+    return self.mounts:Find(function(m) return m.mountID == id end)
 end
 
--- For some reason GetShapeshiftFormInfo doesn't work on Ghost Wolf.
+-- Find mount based on shapeshift form
 function LM.MountRegistry:GetMountByShapeshiftForm(i)
     if not i then
         return
@@ -336,6 +375,11 @@ function LM.MountRegistry:GetMountByShapeshiftForm(i)
     end
 end
 
+--[[----------------------------------------------------------------------------
+  Journal Mount Information
+----------------------------------------------------------------------------]]--
+
+-- Helper to check faction
 local function IsRightFaction(info)
     if not info[9] then
         return true
@@ -347,10 +391,7 @@ local function IsRightFaction(info)
     end
 end
 
--- Paladin level 20/40 mounts and felsaber are only counted if actually usable.
--- Everything else is counted if you're the right faction, irrespective of
--- whether you can mount up on it. This makes no sense at all.
-
+-- Mounts that don't count towards usable total
 local notCounted = {
     [367]   = true,     -- Exarch's Elekk
     [368]   = true,     -- Great Exarch's Elekk
@@ -364,6 +405,7 @@ local notCounted = {
     [780]   = true,     -- Felsaber
 }
 
+-- Helper to check if mount counts for usable total
 local function IsCounted(info)
     if notCounted[info[12]] then
         return info[4]
@@ -372,10 +414,11 @@ local function IsCounted(info)
     end
 end
 
+-- Get mount totals for display
 function LM.MountRegistry:GetJournalTotals()
     local c = { total=0, collected=0, usable=0 }
 
-    for _,id in ipairs(C_MountJournal.GetMountIDs()) do
+    for _, id in ipairs(C_MountJournal.GetMountIDs()) do
         local info = { C_MountJournal.GetMountInfoByID(id) }
         c.total = c.total + 1
         if info[11] and not info[10] then
